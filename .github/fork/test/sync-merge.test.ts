@@ -100,6 +100,20 @@ describe('sync-merge.sh', () => {
     expect(git(work, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('sync/upstream')
   })
 
+  it('keeps specs/ at the fork state', () => {
+    write(work, 'specs/2026-01-01-x.md', 'fork spec\n')
+    commitAll(work, 'fork spec')
+    git(work, 'push', '-q', 'origin', 'main')
+    write(up, 'specs/2026-01-01-x.md', 'upstream spec\n')
+    write(up, 'specs/other.md', 'upstream other\n')
+    commitAll(up, 'upstream adds specs')
+
+    const out = sync()
+    expect(out).toMatchObject({ changed: 'true', conflict: 'false' })
+    expect(readFileSync(join(work, 'specs/2026-01-01-x.md'), 'utf8')).toBe('fork spec\n')
+    expect(existsSync(join(work, 'specs/other.md'))).toBe(false)
+  })
+
   it('commits conflict markers and reports the conflict', () => {
     write(up, 'package.json', '{\n  "name": "wanderlog-mcp-renamed"\n}\n')
     commitAll(up, 'upstream rename')
