@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 const script = fileURLToPath(new URL('../sync-merge.sh', import.meta.url))
+const conflictsScript = fileURLToPath(new URL('../merge-conflicts.sh', import.meta.url))
 const env = {
   ...process.env,
   GIT_CONFIG_GLOBAL: '/dev/null',
@@ -39,6 +40,13 @@ const sync = (): Record<string, string> => {
       .filter(Boolean)
       .map((l) => l.split('=') as [string, string]),
   )
+}
+
+const mergeConflicts = (head: string, existing = ''): string[] => {
+  const out = join(dir, 'conflicts.txt')
+  writeFileSync(out, existing)
+  execFileSync('bash', [conflictsScript, head, out], { cwd: dir, env })
+  return readFileSync(out, 'utf8').split('\n').filter(Boolean)
 }
 
 beforeEach(() => {
@@ -109,5 +117,43 @@ describe('sync-merge.sh', () => {
     const out = sync()
     expect(out).toMatchObject({ changed: 'true', conflict: 'false' })
     expect(git(work, 'diff', '--name-only', 'origin/main', 'HEAD')).toBe('')
+  })
+
+  it('finds marker-less conflicts with merge-tree (fork modifies, upstream deletes)', () => {
+    write(up, 'src/apply.ts', 'export const apply = 1\n')
+    commitAll(up, 'upstream adds apply')
+    sync()
+    git(work, 'switch', '-q', 'main')
+    git(work, 'merge', '-q', '--ff-only', 'sync/upstream')
+    write(work, 'src/apply.ts', 'export const apply = 2 // fork patch\n')
+    commitAll(work, 'fork patches apply')
+    git(work, 'push', '-q', 'origin', 'main')
+    git(up, 'rm', '-q', 'src/apply.ts')
+    commitAll(up, 'upstream deletes apply')
+
+    const out = sync()
+    expect(out).toMatchObject({ changed: 'true', conflict: 'true' })
+    expect(readFileSync(join(work, 'src/apply.ts'), 'utf8')).not.toContain('<<<<<<<')
+    expect(mergeConflicts(work)).toEqual(['src/apply.ts'])
+  })
+
+  it('merge-conflicts.sh ignores fork-owned paths and de-duplicates its output', () => {
+    write(up, '.github/workflows/ours.yml', 'upstream collides with our file\n')
+    write(up, 'package.json', '{\n  "name": "wanderlog-mcp-renamed"\n}\n')
+    commitAll(up, 'upstream conflicts in .github and package.json')
+
+    sync()
+    expect(mergeConflicts(work, 'package.json\n')).toEqual(['package.json'])
+  })
+
+  it('merge-conflicts.sh reports nothing for a clean merge', () => {
+    write(up, 'src/a.ts', 'export const a = 2\n')
+    commitAll(up, 'upstream change')
+    sync()
+    expect(mergeConflicts(work)).toEqual([])
+  })
+
+  it('merge-conflicts.sh fails closed when head is not a two-parent merge', () => {
+    expect(mergeConflicts(work)).toEqual(['(head is not a two-parent merge commit)'])
   })
 })

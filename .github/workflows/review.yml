@@ -54,6 +54,8 @@ jobs:
           git -c core.quotepath=false diff --no-ext-diff --no-renames --text --src-prefix=a/ --dst-prefix=b/ "$BASE_SHA"...HEAD -- . ':(exclude).github' >../diff.patch
           git -c core.quotepath=false diff --no-ext-diff --no-renames --text --src-prefix=a/ --dst-prefix=b/ --name-only "$BASE_SHA"...HEAD >../changed.txt
           git grep -lE '^(<<<<<<<|>>>>>>>) ' -- . ':(exclude).github' >../conflicts.txt || true
+      - name: Merge-tree conflicts (marker-less, e.g. modify/delete)
+        run: bash base/.github/fork/merge-conflicts.sh head conflicts.txt
 
       - id: conflict
         run: |
