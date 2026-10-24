@@ -56,6 +56,8 @@ These are declared preferences; they override the superpowers skills' defaults.
   It is a **machine-wide singleton** (it mutates the one live trip in `WANDERLOG_TRIP_KEY` on wanderlog.com) — never run two at once. It needs `.env`; if the worktree has none, say so instead of skipping silently.
 - **Finishing a branch:** always push to `origin` and open a PR against the fork — `gh pr create --repo thedebuggedlife/wanderlog-mcp --base main`, never against `upstream`; never merge into `main` locally.
   The PR must carry exactly one `release:*` label — `release:none` for chore/docs/ci/test, `release:patch` for fixes, `release:minor` for features, `release:major` for breaking changes — since labels, not commit subjects, decide what the release workflow publishes when `main` moves. Ask if the bump is unclear.
+  Before pushing, also run `npm run format:check && npm run lint && npm run build`: CI runs them for the required `fork/gates` status.
+  Merge only when asked, and only with `gh pr merge --squash`. Merge commits are reserved for `sync/` PRs, which need upstream in `main`'s ancestry.
   Archive the worktree through Paseo, then delete the merged branch. Worktrees removed any other way also need `.claude/scripts/lumen-prune.sh <worktree path>`.
 - **Specs** go in `specs/YYYY-MM-DD-<feature>.md`, committed as `docs:` on the feature branch (not `docs/`, which upstream's `.gitignore` ignores).
 - **Plans** and other agent workflow artifacts **never** get committed into the tree.
