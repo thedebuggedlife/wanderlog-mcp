@@ -12,7 +12,7 @@ concurrency:
 permissions: {}
 
 jobs:
-  analyze:
+  static:
     if: >-
       startsWith(github.event.pull_request.head.ref, 'sync/') &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -21,7 +21,7 @@ jobs:
     permissions:
       contents: read
     outputs:
-      conflict: ${{ steps.gates.outputs.conflict }}
+      conflict: ${{ steps.conflict.outputs.conflict }}
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
     steps:
@@ -52,6 +52,66 @@ jobs:
           git -c core.quotepath=false diff --no-ext-diff --no-renames --text --src-prefix=a/ --dst-prefix=b/ --name-only "$BASE_SHA"...HEAD >../changed.txt
           git grep -lE '^(<<<<<<<|>>>>>>>) ' -- . ':(exclude).github' >../conflicts.txt || true
 
+      - id: conflict
+        run: |
+          if [ -s conflicts.txt ]; then echo conflict=true; else echo conflict=false; fi >>"$GITHUB_OUTPUT"
+
+      - name: Install dependencies without lifecycle scripts
+        run: |
+          (cd head && npm ci --ignore-scripts)
+          (cd base && npm ci --ignore-scripts)
+
+      - name: Dependency trees and audits
+        run: |
+          (cd base && npm ls --omit=dev --all --json >../base-ls.json 2>/dev/null || true)
+          (cd head && npm ls --omit=dev --all --json >../head-ls.json 2>/dev/null || true)
+          if (cd head && npm audit signatures >../sig.txt 2>&1); then echo ok >sig-status; else echo fail >sig-status; fi
+          (cd head && npm audit --omit=dev --json >../audit.json 2>/dev/null || true)
+
+      - name: Evidence
+        run: >-
+          node base/.github/fork/bin/evidence.ts --base base --head head --diff diff.patch
+          --changed changed.txt --base-ls base-ls.json --head-ls head-ls.json --audit audit.json
+          --sig-status sig-status --sig-log sig.txt --no-tools --out evidence.json
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: analysis
+          path: |
+            numstat.txt
+            conflicts.txt
+            diff.patch
+            changed.txt
+            evidence.json
+
+  exec:
+    if: >-
+      startsWith(github.event.pull_request.head.ref, 'sync/') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      build_ok: ${{ steps.build.outcome == 'success' }}
+      tests_ok: ${{ steps.test.outcome == 'success' }}
+    steps:
+      - name: Checkout base (fork main)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - name: Checkout PR head (untrusted, executed here)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
       - name: Install, typecheck, build (head)
         id: build
         continue-on-error: true
@@ -67,40 +127,20 @@ jobs:
         continue-on-error: true
         working-directory: base
         run: npm ci --ignore-scripts && npm run build
-
-      - name: Dependency trees and audits
-        run: |
-          (cd base && npm ls --omit=dev --all --json >../base-ls.json 2>/dev/null || true)
-          (cd head && npm ls --omit=dev --all --json >../head-ls.json 2>/dev/null || true)
-          if (cd head && npm audit signatures >../sig.txt 2>&1); then echo ok >sig-status; else echo fail >sig-status; fi
-          (cd head && npm audit --omit=dev --json >../audit.json 2>/dev/null || true)
-
-      - name: Gates
-        id: gates
-        env:
-          BUILD_OK: ${{ steps.build.outcome == 'success' }}
-          TESTS_OK: ${{ steps.test.outcome == 'success' }}
-        run: >-
-          node base/.github/fork/bin/gates.ts --numstat numstat.txt --conflicts conflicts.txt
-          --build-ok "$BUILD_OK" --tests-ok "$TESTS_OK" --out gates.json
-
-      - name: Evidence
-        run: >-
-          node base/.github/fork/bin/evidence.ts --base base --head head --diff diff.patch
-          --changed changed.txt --base-ls base-ls.json --head-ls head-ls.json --audit audit.json
-          --sig-status sig-status --sig-log sig.txt --out evidence.json
+      - name: List tools (base and head)
+        continue-on-error: true
+        run: node base/.github/fork/bin/tools-list.ts --base base --head head --out tools.json
 
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
-          name: analysis
-          path: |
-            gates.json
-            evidence.json
-            diff.patch
+          name: exec
+          path: tools.json
+          if-no-files-found: ignore
 
   claude-review:
-    needs: analyze
-    if: needs.analyze.result == 'success' && needs.analyze.outputs.conflict != 'true'
+    needs: [static, exec]
+    if: ${{ !cancelled() && needs.static.result == 'success' && needs.static.outputs.conflict != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -125,6 +165,11 @@ jobs:
         with:
           name: analysis
           path: analysis
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: exec
+          path: exec
       - id: inputs
         run: |
           {
@@ -145,8 +190,8 @@ jobs:
           claude_args: >-
             --model opus --effort high
             --add-dir pr-head
-            --allowedTools Read,Grep,Glob
-            --disallowedTools "Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Read(//proc/**)"
+            --allowedTools "Read(./**),Grep,Glob"
+            --disallowedTools "Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Read(//proc/**),Read(//tmp/**),Read(//etc/**),Read(//var/**),Read(//home/runner/.*/**),Read(//home/runner/work/_temp/**),Read(//home/runner/work/_actions/**),Read(//home/runner/runners/**)"
             --json-schema '${{ steps.inputs.outputs.schema }}'
       - id: model
         if: always() && steps.claude.outputs.execution_file != ''
@@ -157,8 +202,8 @@ jobs:
           echo "model=$model" >>"$GITHUB_OUTPUT"
 
   verdict:
-    needs: [analyze, claude-review]
-    if: always() && needs.analyze.result != 'skipped'
+    needs: [static, exec, claude-review]
+    if: ${{ !cancelled() && needs.static.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -179,6 +224,15 @@ jobs:
         with:
           name: analysis
           path: analysis
+      - name: Gates
+        env:
+          BUILD_OK: ${{ needs.exec.outputs.build_ok == 'true' }}
+          TESTS_OK: ${{ needs.exec.outputs.tests_ok == 'true' }}
+        run: |
+          if [ -f analysis/evidence.json ]; then
+            node trusted/.github/fork/bin/gates.ts --numstat analysis/numstat.txt --conflicts analysis/conflicts.txt \
+              --build-ok "$BUILD_OK" --tests-ok "$TESTS_OK" --out gates.json
+          fi
       - id: app
         uses: actions/create-github-app-token@v3
         with:
@@ -190,7 +244,7 @@ jobs:
           MODEL: ${{ needs.claude-review.outputs.model }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: >-
-          node trusted/.github/fork/bin/decide.ts --gates analysis/gates.json --evidence analysis/evidence.json
+          node trusted/.github/fork/bin/decide.ts --gates gates.json --evidence analysis/evidence.json
           --review-env REVIEW --model "$MODEL" --head-ref "$HEAD_REF" --out decision.json --comment comment.md
       - name: Apply
         env:

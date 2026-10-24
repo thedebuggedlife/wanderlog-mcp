@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -64,4 +64,30 @@ it('assembles a report from the inputs, tolerating missing files', () => {
   ])
   expect(report.toolsDiff).toEqual({ added: [], removed: [], newlyRequired: [], removedParams: [] })
   expect(report.tools.head).toEqual(['alpha', 'beta'])
+})
+
+it('--no-tools never executes dist/index.js and emits no tool evidence', () => {
+  const marker = join(dir, 'marker')
+  for (const side of ['base', 'head']) {
+    tree(join(dir, side), 'export {}')
+    writeFileSync(
+      join(dir, side, 'dist', 'index.js'),
+      `import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(marker)}, 'ran')\n`,
+    )
+  }
+  execFileSync(process.execPath, [
+    cli,
+    '--base',
+    join(dir, 'base'),
+    '--head',
+    join(dir, 'head'),
+    '--no-tools',
+    '--out',
+    join(dir, 'evidence.json'),
+  ])
+  const report = JSON.parse(readFileSync(join(dir, 'evidence.json'), 'utf8'))
+  expect(report.items.filter((i: { id: string }) => i.id.startsWith('tool'))).toEqual([])
+  expect(report.toolsDiff).toBeNull()
+  expect(report.tools).toEqual({ base: [], head: [] })
+  expect(existsSync(marker)).toBe(false)
 })

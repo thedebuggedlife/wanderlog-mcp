@@ -37,7 +37,7 @@ describe('review contract', () => {
     }
   })
   it('the prompt points at the paths review.yml provides', () => {
-    for (const path of ['pr-head/', 'analysis/diff.patch', 'analysis/evidence.json', 'analysis/gates.json']) {
+    for (const path of ['pr-head/', 'analysis/diff.patch', 'analysis/evidence.json', 'exec/tools.json']) {
       expect(prompt).toContain(path)
     }
   })

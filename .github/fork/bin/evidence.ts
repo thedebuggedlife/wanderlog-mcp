@@ -26,6 +26,7 @@ const { values } = parseArgs({
     audit: { type: 'string' },
     'sig-status': { type: 'string' },
     'sig-log': { type: 'string' },
+    'no-tools': { type: 'boolean', default: false },
     out: { type: 'string' },
   },
 })
@@ -61,7 +62,8 @@ async function tools(root: string): Promise<ToolInfo[] | Error> {
 
 const base = values.base ?? 'base'
 const head = values.head ?? 'head'
-const [baseTools, headTools] = await Promise.all([tools(base), tools(head)])
+const noTools = new Error('tools/list skipped')
+const [baseTools, headTools] = values['no-tools'] ? [noTools, noTools] : await Promise.all([tools(base), tools(head)])
 
 const items: EvidenceItem[] = [
   ...dependencyItems(readJson<NpmLsNode>(values['base-ls']) ?? {}, readJson<NpmLsNode>(values['head-ls']) ?? {}),
@@ -83,7 +85,7 @@ for (const [side, result] of [
   ['base', baseTools],
   ['head', headTools],
 ] as const) {
-  if (result instanceof Error) {
+  if (result instanceof Error && !values['no-tools']) {
     items.push({
       id: `tools-list:${side}`,
       kind: 'tools-list',

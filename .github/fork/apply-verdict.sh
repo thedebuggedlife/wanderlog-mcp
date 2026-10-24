@@ -26,7 +26,12 @@ fi
 
 if [ "$(field .automerge)" = "true" ]; then
   if [ "$(field .dryRun)" != "true" ]; then
-    gh pr merge "$PR" --repo "$REPO" --auto --merge
+    if ! gh pr merge "$PR" --repo "$REPO" --auto --merge; then
+      status failure fork/verdict "Auto-merge could not be enabled"
+      pr_edit --add-label needs-human
+      if [ -n "${REVIEWER:-}" ]; then pr_edit --add-reviewer "$REVIEWER" || true; fi
+      exit 1
+    fi
   fi
   status success fork/verdict "Automated review: safe"
 else
