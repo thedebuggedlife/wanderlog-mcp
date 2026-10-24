@@ -295,3 +295,60 @@ jobs:
           gh api --silent "repos/$REPO/statuses/$SHA" -f state=failure -f context=fork/verdict \
             -f description="Verdict job failed" || true
           gh pr edit "$PR" --repo "$REPO" --add-label needs-human || true
+
+  human-exec:
+    if: >-
+      !startsWith(github.event.pull_request.head.ref, 'sync/') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout PR head (executed here, no secrets)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - name: Fork tooling tests
+        working-directory: .github/fork
+        run: npm ci --ignore-scripts && npm test
+
+  human-verdict:
+    needs: [human-exec]
+    if: ${{ !cancelled() && needs.human-exec.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.SYNC_APP_ID }}
+          private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
+      - name: Post fork statuses
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          EXEC: ${{ needs.human-exec.result }}
+        run: |
+          status() {
+            gh api --silent "repos/$REPO/statuses/$SHA" -f state="$1" -f context="$2" -f description="$3"
+          }
+          if [ "$EXEC" = success ]; then
+            status success fork/gates "Format, lint, typecheck, build and tests passed"
+          else
+            status failure fork/gates "Format, lint, typecheck, build or tests failed"
+          fi
+          status success fork/verdict "Human-authored PR: no automated review"
