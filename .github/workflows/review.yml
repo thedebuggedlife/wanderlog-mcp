@@ -50,7 +50,7 @@ jobs:
         run: |
           mkdir -p "$(git rev-parse --git-path info)"
           echo '* diff' >"$(git rev-parse --git-path info/attributes)"
-          git -c core.quotepath=false diff --no-ext-diff --no-renames --text --src-prefix=a/ --dst-prefix=b/ --numstat "$BASE_SHA"...HEAD -- . ':(exclude).github' >../numstat.txt
+          git -c core.quotepath=false diff --no-ext-diff --no-renames --text --src-prefix=a/ --dst-prefix=b/ --numstat -z "$BASE_SHA"...HEAD -- . ':(exclude).github' >../numstat.txt
           git -c core.quotepath=false diff --no-ext-diff --no-renames --text --src-prefix=a/ --dst-prefix=b/ "$BASE_SHA"...HEAD -- . ':(exclude).github' >../diff.patch
           git -c core.quotepath=false diff --no-ext-diff --no-renames --text --src-prefix=a/ --dst-prefix=b/ --name-only "$BASE_SHA"...HEAD >../changed.txt
           git grep -lE '^(<<<<<<<|>>>>>>>) ' -- . ':(exclude).github' >../conflicts.txt || true

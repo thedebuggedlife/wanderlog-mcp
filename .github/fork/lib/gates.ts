@@ -10,9 +10,10 @@ export interface GateResult {
 
 export function srcDeltaLines(numstat: string): number {
   let total = 0
-  for (const line of numstat.split('\n')) {
-    const [added, deleted, path] = line.split('\t')
-    if (!path || !path.startsWith('src/')) continue
+  for (const record of numstat.split(numstat.includes('\0') ? '\0' : '\n')) {
+    const [added, deleted] = record.split('\t', 2)
+    const path = record.split('\t').slice(2).join('\t')
+    if (!path.startsWith('src/')) continue
     if (added === '-' || deleted === '-') continue
     total += Number(added) + Number(deleted)
   }
