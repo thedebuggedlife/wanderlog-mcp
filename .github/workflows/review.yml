@@ -1,0 +1,202 @@
+name: review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+concurrency:
+  group: review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  analyze:
+    if: >-
+      startsWith(github.event.pull_request.head.ref, 'sync/') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      conflict: ${{ steps.gates.outputs.conflict }}
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - name: Checkout base (fork main, trusted tooling)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - name: Checkout PR head (untrusted)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Diff
+        working-directory: head
+        run: |
+          mkdir -p "$(git rev-parse --git-path info)"
+          echo '* diff' >"$(git rev-parse --git-path info/attributes)"
+          git -c core.quotepath=false diff --no-ext-diff --no-renames --text --src-prefix=a/ --dst-prefix=b/ --numstat "$BASE_SHA"...HEAD -- . ':(exclude).github' >../numstat.txt
+          git -c core.quotepath=false diff --no-ext-diff --no-renames --text --src-prefix=a/ --dst-prefix=b/ "$BASE_SHA"...HEAD -- . ':(exclude).github' >../diff.patch
+          git -c core.quotepath=false diff --no-ext-diff --no-renames --text --src-prefix=a/ --dst-prefix=b/ --name-only "$BASE_SHA"...HEAD >../changed.txt
+          git grep -lE '^(<<<<<<<|>>>>>>>) ' -- . ':(exclude).github' >../conflicts.txt || true
+
+      - name: Install, typecheck, build (head)
+        id: build
+        continue-on-error: true
+        working-directory: head
+        run: npm ci --ignore-scripts && npm run typecheck && npm run build
+      - name: Unit tests (head)
+        id: test
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        working-directory: head
+        run: npm test
+      - name: Install and build (base)
+        continue-on-error: true
+        working-directory: base
+        run: npm ci --ignore-scripts && npm run build
+
+      - name: Dependency trees and audits
+        run: |
+          (cd base && npm ls --omit=dev --all --json >../base-ls.json 2>/dev/null || true)
+          (cd head && npm ls --omit=dev --all --json >../head-ls.json 2>/dev/null || true)
+          if (cd head && npm audit signatures >../sig.txt 2>&1); then echo ok >sig-status; else echo fail >sig-status; fi
+          (cd head && npm audit --omit=dev --json >../audit.json 2>/dev/null || true)
+
+      - name: Gates
+        id: gates
+        env:
+          BUILD_OK: ${{ steps.build.outcome == 'success' }}
+          TESTS_OK: ${{ steps.test.outcome == 'success' }}
+        run: >-
+          node base/.github/fork/bin/gates.ts --numstat numstat.txt --conflicts conflicts.txt
+          --build-ok "$BUILD_OK" --tests-ok "$TESTS_OK" --out gates.json
+
+      - name: Evidence
+        run: >-
+          node base/.github/fork/bin/evidence.ts --base base --head head --diff diff.patch
+          --changed changed.txt --base-ls base-ls.json --head-ls head-ls.json --audit audit.json
+          --sig-status sig-status --sig-log sig.txt --out evidence.json
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: analysis
+          path: |
+            gates.json
+            evidence.json
+            diff.patch
+
+  claude-review:
+    needs: analyze
+    if: needs.analyze.result == 'success' && needs.analyze.outputs.conflict != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      review: ${{ steps.claude.outputs.structured_output }}
+      model: ${{ steps.model.outputs.model }}
+    steps:
+      - name: Checkout base at the workspace root (trusted)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Checkout PR head into pr-head/ (untrusted, read as text)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr-head
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: analysis
+          path: analysis
+      - id: inputs
+        run: |
+          {
+            echo 'schema<<SCHEMA_EOF'
+            jq -c . .github/fork/review-schema.json
+            echo 'SCHEMA_EOF'
+            echo 'prompt<<PROMPT_EOF'
+            cat .github/fork/review-prompt.md
+            echo 'PROMPT_EOF'
+          } >>"$GITHUB_OUTPUT"
+      - id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          allowed_bots: '*'
+          prompt: ${{ steps.inputs.outputs.prompt }}
+          claude_args: >-
+            --model opus --effort high
+            --add-dir pr-head
+            --allowedTools Read,Grep,Glob
+            --disallowedTools "Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Read(//proc/**)"
+            --json-schema '${{ steps.inputs.outputs.schema }}'
+      - id: model
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          EXEC: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          model=$(jq -r '[.[] | select(.type == "system" and .subtype == "init") | .model][0] // "unknown"' "$EXEC" 2>/dev/null || echo unknown)
+          echo "model=$model" >>"$GITHUB_OUTPUT"
+
+  verdict:
+    needs: [analyze, claude-review]
+    if: always() && needs.analyze.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout base tooling (trusted)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+          sparse-checkout: .github/fork
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: analysis
+          path: analysis
+      - id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.SYNC_APP_ID }}
+          private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
+      - name: Decide
+        env:
+          REVIEW: ${{ needs.claude-review.outputs.review }}
+          MODEL: ${{ needs.claude-review.outputs.model }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: >-
+          node trusted/.github/fork/bin/decide.ts --gates analysis/gates.json --evidence analysis/evidence.json
+          --review-env REVIEW --model "$MODEL" --head-ref "$HEAD_REF" --out decision.json --comment comment.md
+      - name: Apply
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEWER: ${{ vars.FORK_REVIEWER }}
+        run: bash trusted/.github/fork/apply-verdict.sh decision.json comment.md
