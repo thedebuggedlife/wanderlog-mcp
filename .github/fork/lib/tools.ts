@@ -27,7 +27,7 @@ export function diffTools(base: ToolInfo[], head: ToolInfo[]): ToolsDiff {
       .sort()
     if (gone.length > 0) removedParams.push({ tool: name, params: gone })
   }
-  const byTool = (x: { tool: string }, y: { tool: string }): number => x.tool.localeCompare(y.tool)
+  const byTool = (x: { tool: string }, y: { tool: string }): number => (x.tool < y.tool ? -1 : x.tool > y.tool ? 1 : 0)
   return {
     added: [...after.keys()].filter((n) => !before.has(n)).sort(),
     removed: [...before.keys()].filter((n) => !after.has(n)).sort(),

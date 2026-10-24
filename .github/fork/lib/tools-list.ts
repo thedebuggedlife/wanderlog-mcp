@@ -62,7 +62,10 @@ export function listTools(entry: string, env: Record<string, string>, timeoutMs 
           send({ id: 2, method: 'tools/list', params: {} })
         } else if (typeof msg.id === 'number' && msg.id >= 2) {
           if (msg.error) return finish(new Error(`tools/list failed: ${JSON.stringify(msg.error)}`))
-          tools.push(...(msg.result?.tools ?? []))
+          if (!Array.isArray(msg.result?.tools)) {
+            return finish(new Error(`malformed tools/list response: ${line.slice(0, 200)}`))
+          }
+          tools.push(...msg.result.tools)
           const cursor = msg.result?.nextCursor
           if (cursor) send({ id: msg.id + 1, method: 'tools/list', params: { cursor } })
           else finish(null)

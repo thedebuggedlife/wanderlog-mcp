@@ -46,6 +46,9 @@ describe('listTools', () => {
   it('rejects with stderr when the MCP exits early', async () => {
     await expect(listTools(fixture('exit-mcp.mjs'), {})).rejects.toThrow(/exited with code 3[\s\S]*boom/)
   })
+  it('rejects a malformed tools/list response', async () => {
+    await expect(listTools(fixture('malformed-mcp.mjs'), {})).rejects.toThrow(/malformed tools\/list response/)
+  })
   it('rejects on timeout', async () => {
     await expect(listTools(fixture('silent-mcp.mjs'), {}, 300)).rejects.toThrow(/timed out after 300ms/)
   })
