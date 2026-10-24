@@ -341,22 +341,73 @@ export function toolItems(d: ToolsDiff): EvidenceItem[] {
   return items.sort(byId)
 }
 
+interface LockDependency {
+  version?: string
+  resolved?: string
+  dependencies?: Record<string, LockDependency>
+}
+
 export interface PackageLock {
-  packages?: Record<string, { resolved?: string; link?: boolean }>
+  lockfileVersion?: number
+  packages?: Record<string, { name?: string; version?: string; resolved?: string; link?: boolean }>
+  dependencies?: Record<string, LockDependency>
 }
 
 const NPM_REGISTRY = 'https://registry.npmjs.org/'
 
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
+const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
+
+function expectedTarball(key: string, name: string | undefined, version: string | undefined): string {
+  const marker = key.lastIndexOf('node_modules/')
+  const pkg = name ?? (marker >= 0 ? key.slice(marker + 'node_modules/'.length) : key)
+  if (version === undefined) return `a tarball of ${pkg} with a pinned version`
+  return `${NPM_REGISTRY}${pkg}/-/${pkg.slice(pkg.lastIndexOf('/') + 1)}-${version}.tgz`
+}
+
 export function lockfileSourceItems(lock: PackageLock | null): EvidenceItem[] {
-  return Object.entries(lock?.packages ?? {})
-    .filter(
-      ([key, p]) =>
-        key !== '' && (p.link === true || (p.resolved !== undefined && !p.resolved.startsWith(NPM_REGISTRY))),
-    )
-    .map(([key, p]): EvidenceItem => ({
-      id: `lockfile-source:${key}`,
-      kind: 'lockfile-source',
-      detail: `${key} resolves from ${p.link === true ? 'a local link' : p.resolved}`,
-    }))
-    .sort(byId)
+  if (!isObject(lock)) return []
+  const items = new Map<string, EvidenceItem>()
+  const add = (id: string, detail: string): void => {
+    items.set(id, { id: `lockfile-source:${id}`, kind: 'lockfile-source', detail })
+  }
+
+  if (typeof lock.lockfileVersion !== 'number' || lock.lockfileVersion < 2) {
+    add('lockfile-version', `lockfileVersion ${String(lock.lockfileVersion ?? 'missing')} (expected 2 or 3)`)
+  }
+
+  if (isObject(lock.packages)) {
+    for (const [key, p] of Object.entries(lock.packages)) {
+      if (key === '' || !isObject(p)) continue
+      const resolved = str(p.resolved)
+      const version = str(p.version)
+      if (p.link === true) {
+        add(key, `${key} resolves from a local link`)
+      } else if (resolved !== undefined && !resolved.startsWith(NPM_REGISTRY)) {
+        add(key, `${key} resolves from ${resolved}`)
+      } else if (resolved !== undefined) {
+        const expected = expectedTarball(key, str(p.name), version)
+        if (version === undefined || resolved !== expected) {
+          add(key, `${key} resolves to ${resolved}, expected ${expected}`)
+        }
+      }
+    }
+  }
+
+  const stack: { path: string; deps: unknown }[] = [{ path: 'dependencies', deps: lock.dependencies }]
+  while (stack.length > 0) {
+    const { path, deps } = stack.pop()!
+    if (!isObject(deps)) continue
+    for (const [name, dep] of Object.entries(deps)) {
+      if (!isObject(dep)) continue
+      const here = `${path}/${name}`
+      const source = [str(dep.resolved), str(dep.version)].find(
+        (v) => v !== undefined && v.includes(':') && !v.startsWith(NPM_REGISTRY),
+      )
+      if (source !== undefined) add(here, `${here} resolves from ${source}`)
+      stack.push({ path: here, deps: dep.dependencies })
+    }
+  }
+
+  return [...items.values()].sort(byId)
 }
