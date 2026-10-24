@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { VERDICT_MARKER } from '../lib/decide.ts'
-import { findVerdictComment, parseUpstreamCommit, renderReleaseNotes, stampPackage } from '../lib/release.ts'
+import {
+  findVerdictComment,
+  forkReleaseTags,
+  parseUpstreamCommit,
+  renderReleaseNotes,
+  stampPackage,
+} from '../lib/release.ts'
 
 const sha = (c: string) => c.repeat(40)
 
@@ -60,5 +66,26 @@ describe('renderReleaseNotes', () => {
     const notes = renderReleaseNotes({ ...input, prevUpstreamCommit: null, verdictComment: null })
     expect(notes).toContain(`https://github.com/shaikhspeare/wanderlog-mcp/commit/${sha('b')}`)
     expect(notes).toContain('No automated review for this release')
+  })
+})
+
+describe('forkReleaseTags', () => {
+  const sha = 'a'.repeat(40)
+  it('keeps only annotated fork release tags, in input order', () => {
+    const lines = [
+      `v1.2.0\ttag\tupstream-commit: ${sha}`,
+      `v0.3.1\tcommit\tfix: something`,
+      `v0.3.0\ttag\tRelease 0.3.0`,
+      `v1.1.0\ttag\tupstream-commit: ${sha}`,
+      `v1.0.0\tcommit\tupstream-commit: ${sha}`,
+      `v1.0.0-rc.1\ttag\tupstream-commit: ${sha}`,
+      `v1.0.1\ttag\tupstream-commit: ${sha.slice(1)}`,
+    ].join('\n')
+    expect(forkReleaseTags(lines)).toEqual(['v1.2.0', 'v1.1.0'])
+  })
+
+  it('returns [] for empty input', () => {
+    expect(forkReleaseTags('')).toEqual([])
+    expect(forkReleaseTags('\n')).toEqual([])
   })
 })

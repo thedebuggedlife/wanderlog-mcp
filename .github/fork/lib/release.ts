@@ -11,6 +11,17 @@ export function parseUpstreamCommit(tagMessage: string): string | null {
   return /^upstream-commit: ([0-9a-f]{40})$/m.exec(tagMessage)?.[1] ?? null
 }
 
+export function forkReleaseTags(lines: string): string[] {
+  return lines
+    .split('\n')
+    .map((l) => l.split('\t'))
+    .filter(
+      ([name, type, subject]) =>
+        type === 'tag' && /^v\d+\.\d+\.\d+$/.test(name) && /^upstream-commit: [0-9a-f]{40}$/.test(subject ?? ''),
+    )
+    .map(([name]) => name)
+}
+
 export function findVerdictComment(bodies: string[]): string | null {
   return bodies.filter((b) => b.includes(VERDICT_MARKER)).at(-1) ?? null
 }

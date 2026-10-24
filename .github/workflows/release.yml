@@ -18,6 +18,7 @@ permissions: {}
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -41,17 +42,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUMP: ${{ inputs.bump }}
         run: |
-          pr_json=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls")
-          labels=$(jq -r '[.[0].labels[]?.name] | join(",")' <<<"$pr_json")
-          pr=$(jq -r '.[0].number // empty' <<<"$pr_json")
-          latest=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          fork_tags() {
+            git for-each-ref --sort=-v:refname --format='%(refname:short)%09%(objecttype)%09%(contents:subject)' "$@" 'refs/tags/v*' \
+              | node .github/fork/bin/fork-tags.ts
+          }
+          emit() {
+            {
+              echo "publish=$1"
+              echo "version=$2"
+              echo "pr=$3"
+            } >>"$GITHUB_OUTPUT"
+          }
+          tagged=$(fork_tags --points-at=HEAD | head -n1)
+          if [ -n "$tagged" ]; then
+            echo "HEAD is already released as $tagged"
+            emit true "${tagged#v}" ""
+            exit 0
+          fi
+          pr_json=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            | jq '[.[] | select(.merged_at != null and .base.ref == "main")][0]')
+          labels=$(jq -r '[.labels[]?.name] | join(",")' <<<"$pr_json")
+          pr=$(jq -r '.number // empty' <<<"$pr_json")
+          latest=$(fork_tags | head -n1)
           node .github/fork/bin/release-plan.ts --labels "$labels" --latest-tag "$latest" --bump "${BUMP:-}" >plan.json
           cat plan.json
-          {
-            echo "publish=$(jq -r .publish plan.json)"
-            echo "version=$(jq -r '.version // empty' plan.json)"
-            echo "pr=$pr"
-          } >>"$GITHUB_OUTPUT"
+          emit "$(jq -r .publish plan.json)" "$(jq -r '.version // empty' plan.json)" "$pr"
       - id: upstream
         if: steps.plan.outputs.publish == 'true'
         run: |
@@ -111,6 +126,11 @@ jobs:
         run: |
           tgz=$(ls pkg/*.tgz)
           name=$(tar -xOzf "$tgz" package/package.json | jq -r .name)
+          packed=$(tar -xOzf "$tgz" package/package.json | jq -r .version)
+          if [ "$packed" != "$VERSION" ]; then
+            echo "tarball version $packed does not match planned $VERSION" >&2
+            exit 1
+          fi
           if npm view "$name@$VERSION" version >/dev/null 2>&1; then
             echo "$name@$VERSION is already published"
           else
@@ -121,7 +141,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="v$VERSION"
-          prev=$(git tag --list 'v*' --sort=-v:refname | grep -vx "$tag" | head -n1 || true)
+          prev=$(git for-each-ref --sort=-v:refname --format='%(refname:short)%09%(objecttype)%09%(contents:subject)' 'refs/tags/v*' \
+            | node .github/fork/bin/fork-tags.ts | grep -vx "$tag" | head -n1 || true)
           prev_up=""
           range="HEAD"
           if [ -n "$prev" ]; then
