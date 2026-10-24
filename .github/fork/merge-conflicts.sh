@@ -10,6 +10,9 @@ trap 'rm -f "$tree"' EXIT
 if [ "$(git -C "$head" rev-list --parents -n 1 HEAD | wc -w)" -ne 3 ]; then
   echo "(head is not a two-parent merge commit)" >>"$out"
 else
+  attrs=$(git -C "$head" rev-parse --path-format=absolute --git-path info/attributes)
+  mkdir -p "$(dirname "$attrs")"
+  echo '* merge=text' >>"$attrs"
   status=0
   git -C "$head" -c core.quotepath=false merge-tree --write-tree --name-only --no-messages HEAD^1 HEAD^2 >"$tree" ||
     status=$?

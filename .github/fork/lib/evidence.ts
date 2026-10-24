@@ -338,6 +338,12 @@ export function sensitiveFileItems(changed: string[]): EvidenceItem[] {
         kind: 'sensitive-file',
         detail: `${f} changed (cookie/transport handling or npm config)`,
       })
+    } else if (f.split('/').pop() === '.gitattributes') {
+      items.push({
+        id: `sensitive-file:${f}`,
+        kind: 'sensitive-file',
+        detail: `${f} changed (merge/diff attributes can hide conflicts)`,
+      })
     } else if (isAgentFile(f)) {
       items.push({
         id: `sensitive-file:${f}`,

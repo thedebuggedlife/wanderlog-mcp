@@ -27,6 +27,9 @@ fi
 
 merge_base=$(git merge-base origin/main "$up_sha")
 git switch --quiet -C "$branch" origin/main
+attrs=$(git rev-parse --git-path info/attributes)
+mkdir -p "$(dirname "$attrs")"
+echo '* merge=text' >>"$attrs"
 git merge --no-ff --no-commit "$up_sha" >/dev/null 2>&1 || true
 if ! git rev-parse -q --verify MERGE_HEAD >/dev/null; then
   echo "error: merge of $up_sha did not start" >&2

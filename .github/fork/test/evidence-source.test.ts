@@ -133,6 +133,22 @@ describe('sensitiveFileItems', () => {
       },
     ])
   })
+  it('reports .gitattributes at any depth', () => {
+    expect(
+      sensitiveFileItems(['.gitattributes', 'src/.gitattributes', 'src/gitattributes.ts', 'x.gitattributes']),
+    ).toEqual([
+      {
+        id: 'sensitive-file:.gitattributes',
+        kind: 'sensitive-file',
+        detail: '.gitattributes changed (merge/diff attributes can hide conflicts)',
+      },
+      {
+        id: 'sensitive-file:src/.gitattributes',
+        kind: 'sensitive-file',
+        detail: 'src/.gitattributes changed (merge/diff attributes can hide conflicts)',
+      },
+    ])
+  })
 })
 
 const addedSrc = (text: string): string => ['--- a/src/a.ts', '+++ b/src/a.ts', '@@ -0,0 +1 @@', `+${text}`].join('\n')

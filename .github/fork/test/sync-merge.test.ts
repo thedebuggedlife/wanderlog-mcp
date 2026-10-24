@@ -157,6 +157,47 @@ describe('sync-merge.sh', () => {
     expect(mergeConflicts(work)).toEqual(['(head is not a two-parent merge commit)'])
   })
 
+  describe('with a union merge attribute on fork main', () => {
+    beforeEach(() => {
+      write(work, '.gitattributes', '* merge=union\n')
+      commitAll(work, 'earlier synced .gitattributes')
+      write(work, 'src/a.ts', 'export const a = "fork"\n')
+      commitAll(work, 'fork patches a')
+      git(work, 'push', '-q', 'origin', 'main')
+      write(up, 'src/a.ts', 'export const a = "upstream"\n')
+      commitAll(up, 'upstream edits a')
+    })
+
+    it('sync-merge.sh still reports and commits the conflict', () => {
+      const out = sync()
+      expect(out).toMatchObject({ changed: 'true', conflict: 'true' })
+      expect(readFileSync(join(work, 'src/a.ts'), 'utf8')).toContain('<<<<<<< ')
+    })
+
+    it('merge-conflicts.sh still lists the conflicting path and keeps existing attributes', () => {
+      sync()
+      const attrs = execFileSync('git', ['rev-parse', '--git-path', 'info/attributes'], {
+        cwd: work,
+        env,
+        encoding: 'utf8',
+      }).trim()
+      mkdirSync(join(work, attrs, '..'), { recursive: true })
+      writeFileSync(join(work, attrs), '* diff\n')
+      expect(mergeConflicts(work)).toEqual(['src/a.ts'])
+      const lines = readFileSync(join(work, attrs), 'utf8').split('\n').filter(Boolean)
+      expect(lines).toContain('* diff')
+      expect(lines).toContain('* merge=text')
+    })
+
+    it('merge-conflicts.sh ignores tree attributes on a merge that sync-merge.sh would hide', () => {
+      git(work, 'switch', '-q', '-C', 'hidden', 'origin/main')
+      git(work, 'fetch', '-q', '--no-tags', up, 'main')
+      git(work, 'merge', '-q', '--no-ff', '-m', 'union merge', 'FETCH_HEAD')
+      expect(readFileSync(join(work, 'src/a.ts'), 'utf8')).not.toContain('<<<<<<<')
+      expect(mergeConflicts(work)).toEqual(['src/a.ts'])
+    })
+  })
+
   it('does not rebuild a sync branch that already merges the same main and upstream', () => {
     write(up, 'src/a.ts', 'export const a = 2\n')
     commitAll(up, 'upstream change')
