@@ -28,19 +28,19 @@ jobs:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
     steps:
       - name: Checkout base (fork main, trusted tooling)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base
           persist-credentials: false
       - name: Checkout PR head (untrusted)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: head
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
 
@@ -81,7 +81,7 @@ jobs:
           --sig-status sig-status --sig-log sig.txt --no-tools --out evidence.json
 
       - id: upload-analysis
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: analysis
           path: |
@@ -104,18 +104,18 @@ jobs:
       tests_ok: ${{ steps.test.outcome == 'success' }}
     steps:
       - name: Checkout base (fork main)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base
           persist-credentials: false
       - name: Checkout PR head (untrusted, executed here)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: head
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
 
@@ -138,7 +138,7 @@ jobs:
         continue-on-error: true
         run: node base/.github/fork/bin/tools-list.ts --base base --head head --out tools.json
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: exec
@@ -158,22 +158,22 @@ jobs:
       model: ${{ steps.model.outputs.model }}
     steps:
       - name: Checkout base at the workspace root (trusted)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
       - name: Checkout PR head into pr-head/ (untrusted, read as text)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: pr-head
           persist-credentials: false
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.static.outputs.analysis_id }}
           digest-mismatch: error
           path: analysis
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
           name: exec
@@ -189,7 +189,7 @@ jobs:
             echo 'PROMPT_EOF'
           } >>"$GITHUB_OUTPUT"
       - id: claude
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@16f9f71ab9c490faf367f94dd294897edc25be33 # v1.0.261
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
@@ -218,17 +218,17 @@ jobs:
       contents: read
     steps:
       - name: Checkout base tooling (trusted)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted
           persist-credentials: false
           sparse-checkout: .github/fork
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
       - if: ${{ needs.static.outputs.analysis_id != '' }}
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
           artifact-ids: ${{ needs.static.outputs.analysis_id }}
@@ -244,7 +244,7 @@ jobs:
               --build-ok "$BUILD_OK" --tests-ok "$TESTS_OK" --out gates.json
           fi
       - id: app
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ secrets.SYNC_APP_ID }}
           private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}

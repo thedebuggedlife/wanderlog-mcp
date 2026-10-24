@@ -30,11 +30,11 @@ jobs:
       upstream_repository: ${{ steps.upstream.outputs.repository }}
       upstream_commit: ${{ steps.upstream.outputs.commit }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
       - id: plan
@@ -88,7 +88,7 @@ jobs:
           mkdir -p pack
           npm pack --ignore-scripts --pack-destination pack
       - if: steps.plan.outputs.publish == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: package
           path: pack/*.tgz
@@ -108,17 +108,17 @@ jobs:
       UP_COMMIT: ${{ needs.build.outputs.upstream_commit }}
     steps:
       # Only fork tooling is checked out: no package.json or .npmrc at the root, so no repo config affects npm.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           sparse-checkout: /.github/fork/
           sparse-checkout-cone-mode: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
       - run: npm install -g npm@11.8.0 && npm --version
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: package
           path: pkg
