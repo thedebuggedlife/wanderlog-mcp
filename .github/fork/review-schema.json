@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "bump", "evidenceDispositions", "concerns", "summary"],
+  "properties": {
+    "verdict": { "type": "string", "enum": ["safe", "needs-human"] },
+    "bump": { "type": "string", "enum": ["major", "minor", "patch"] },
+    "evidenceDispositions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "disposition"],
+        "properties": {
+          "item": { "type": "string" },
+          "disposition": { "type": "string" }
+        }
+      }
+    },
+    "concerns": { "type": "array", "items": { "type": "string" } },
+    "summary": { "type": "string" }
+  }
+}
