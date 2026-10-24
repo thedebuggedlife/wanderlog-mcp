@@ -59,8 +59,12 @@ export function decide(i: {
   headRef: string
 }): Decision {
   const reasons: string[] = []
-  if (i.gates === null) reasons.push('Gate results missing (analyze job failed)')
-  else reasons.push(...i.gates.reasons)
+  if (i.gates === null) {
+    reasons.push('Gate results missing (analyze job failed)')
+  } else {
+    reasons.push(...i.gates.reasons)
+    if ((!i.gates.passed || i.gates.conflict) && i.gates.reasons.length === 0) reasons.push('Gate checks failed')
+  }
   if (i.evidence === null) reasons.push('Evidence report missing')
   if (i.review === null) {
     reasons.push('Claude review missing or invalid')
@@ -75,7 +79,7 @@ export function decide(i: {
   let releaseLabel: string | null = i.review ? `release:${i.review.bump}` : null
   if (i.gates?.emptyDiff) releaseLabel = 'release:none'
   return {
-    automerge: reasons.length === 0,
+    automerge: reasons.length === 0 && i.gates?.passed === true && i.gates?.conflict !== true,
     gatesPassed: i.gates?.passed === true,
     dryRun: i.headRef === 'sync/dry-run',
     releaseLabel,
@@ -83,10 +87,30 @@ export function decide(i: {
   }
 }
 
-const TOKEN_RE = /\b(?:sk-ant-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g
+const ZERO_WIDTH_RE = /[\u200B\u200C\u200D\u2060\uFEFF]/g
+const TOKEN_RE = /(?:sk-ant-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g
 
 export function redact(text: string): string {
-  return text.replace(TOKEN_RE, '[REDACTED]')
+  return text.replace(ZERO_WIDTH_RE, '').replace(TOKEN_RE, '[REDACTED]')
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
+
+export function parseGates(value: unknown): GateResult | null {
+  if (!isObject(value)) return null
+  const { passed, conflict, emptyDiff, srcDeltaLines, reasons } = value
+  if (typeof passed !== 'boolean' || typeof conflict !== 'boolean' || typeof emptyDiff !== 'boolean') return null
+  if (typeof srcDeltaLines !== 'number') return null
+  if (!Array.isArray(reasons) || !reasons.every((r) => typeof r === 'string')) return null
+  return { passed, conflict, emptyDiff, srcDeltaLines, reasons }
+}
+
+export function parseEvidence(value: unknown): EvidenceItem[] | null {
+  if (!isObject(value) || !Array.isArray(value.items)) return null
+  const ok = value.items.every(
+    (e) => isObject(e) && typeof e.id === 'string' && typeof e.kind === 'string' && typeof e.detail === 'string',
+  )
+  return ok ? (value.items as EvidenceItem[]) : null
 }
 
 export const VERDICT_MARKER = '<!-- fork-verdict -->'
@@ -103,7 +127,11 @@ export function renderComment(
   const dispositions = new Map((review?.evidenceDispositions ?? []).map((x) => [x.item, x.disposition]))
   const lines = [
     VERDICT_MARKER,
-    d.automerge ? '## Fork review: safe — auto-merge enabled' : '## Fork review: needs a human',
+    d.automerge
+      ? d.dryRun
+        ? '## Fork review: safe — dry run, not merged'
+        : '## Fork review: safe — auto-merge enabled'
+      : '## Fork review: needs a human',
     '',
     `Reviewer model: \`${model || 'unknown'}\`${d.dryRun ? ' · **dry run** (never auto-merged)' : ''}`,
     `Release label: \`${d.releaseLabel ?? 'none — add a release:* label before merging'}\``,
@@ -116,6 +144,6 @@ export function renderComment(
     for (const e of evidence)
       lines.push(`| ${cell(e.id)} | ${cell(e.detail)} | ${cell(dispositions.get(e.id) ?? '—')} |`)
   }
-  const body = redact(lines.join('\n')).replace(/@(?=[A-Za-z0-9-])/g, '@​')
+  const body = redact(lines.join('\n')).replace(/@(?=[A-Za-z0-9-])/g, '@\u200B')
   return body.length > MAX_COMMENT ? body.slice(0, MAX_COMMENT) + '\n\n…(truncated)' : body
 }

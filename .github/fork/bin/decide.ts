@@ -1,8 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
-import { decide, parseReview, renderComment } from '../lib/decide.ts'
-import type { EvidenceItem } from '../lib/evidence.ts'
-import type { GateResult } from '../lib/gates.ts'
+import { decide, parseEvidence, parseGates, parseReview, renderComment } from '../lib/decide.ts'
 
 const { values } = parseArgs({
   options: {
@@ -16,16 +14,16 @@ const { values } = parseArgs({
   },
 })
 
-const readJson = <T>(path: string | undefined): T | null => {
+const readJson = (path: string | undefined): unknown => {
   try {
-    return path && existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as T) : null
+    return path && existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null
   } catch {
     return null
   }
 }
 
-const gates = readJson<GateResult>(values.gates)
-const evidence = readJson<{ items: EvidenceItem[] }>(values.evidence)?.items ?? null
+const gates = parseGates(readJson(values.gates))
+const evidence = parseEvidence(readJson(values.evidence))
 const review = parseReview(process.env[values['review-env']])
 const decision = decide({ gates, evidence, review, headRef: values['head-ref'] })
 

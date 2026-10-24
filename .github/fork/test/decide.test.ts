@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { VERDICT_MARKER, decide, parseReview, redact, renderComment } from '../lib/decide.ts'
+import { VERDICT_MARKER, decide, parseEvidence, parseGates, parseReview, redact, renderComment } from '../lib/decide.ts'
 import type { Review } from '../lib/decide.ts'
 import type { GateResult } from '../lib/gates.ts'
 
@@ -74,8 +74,50 @@ describe('decide', () => {
   it('flags dry runs', () => {
     expect(decide({ ...base, headRef: 'sync/dry-run' }).dryRun).toBe(true)
   })
+  it('keeps a safe dry run automerge-true so the verdict passes', () => {
+    expect(decide({ ...base, headRef: 'sync/dry-run' })).toMatchObject({ automerge: true, dryRun: true })
+  })
+  it('labels a safe dry run as not merged', () => {
+    const body = renderComment(decide({ ...base, headRef: 'sync/dry-run' }), review, evidence, 'claude-opus-5-5')
+    expect(body).toContain('dry run, not merged')
+    expect(body).not.toContain('auto-merge enabled')
+  })
+  it('fails closed when gates fail without reasons', () => {
+    const d = decide({ ...base, gates: { ...gatesOk, passed: false, reasons: [] } })
+    expect(d.automerge).toBe(false)
+    expect(d.reasons).toContain('Gate checks failed')
+  })
+  it('fails closed on a merge conflict even when gates pass', () => {
+    expect(decide({ ...base, gates: { ...gatesOk, passed: true, conflict: true, reasons: [] } }).automerge).toBe(false)
+  })
   it('does not release an empty diff', () => {
     expect(decide({ ...base, gates: { ...gatesOk, emptyDiff: true } }).releaseLabel).toBe('release:none')
+  })
+})
+
+describe('parseGates', () => {
+  it('passes a well-formed gate result through', () => {
+    expect(parseGates(gatesOk)).toEqual(gatesOk)
+  })
+  it.each([
+    null,
+    undefined,
+    'x',
+    { passed: 'yes' },
+    { ...gatesOk, conflict: 'no' },
+    { ...gatesOk, srcDeltaLines: '10' },
+    { ...gatesOk, reasons: [1] },
+  ])('rejects %j', (raw) => {
+    expect(parseGates(raw)).toBeNull()
+  })
+})
+
+describe('parseEvidence', () => {
+  it('passes well-formed evidence items through', () => {
+    expect(parseEvidence({ items: evidence })).toEqual(evidence)
+  })
+  it.each([null, { items: 'x' }, { items: [{ id: 1 }] }])('rejects %j', (raw) => {
+    expect(parseEvidence(raw)).toBeNull()
   })
 })
 
@@ -84,6 +126,14 @@ describe('redact', () => {
     const text =
       'a sk-ant-oat01-ABCDEFGHijkl_mn b ghp_abcdefghijklmnopqrstuvwxyz0123 c github_pat_11ABCDEFGHIJKLMNOPQRSTU d'
     expect(redact(text)).toBe('a [REDACTED] b [REDACTED] c [REDACTED] d')
+  })
+  it('redacts tokens preceded by word characters', () => {
+    expect(redact('x_sk-ant-api03-ABCDEFGHIJ')).toBe('x_[REDACTED]')
+    expect(redact('TOKEN_ghp_abcdefghijklmnopqrstuvwxyz0123')).toBe('TOKEN_[REDACTED]')
+    expect(redact('Xgithub_pat_11ABCDEFGHIJKLMNOPQRSTU')).toBe('X[REDACTED]')
+  })
+  it('redacts tokens with an embedded zero-width space', () => {
+    expect(redact('sk-ant-oat01-\u200BABCDEFGHIJKL')).toBe('[REDACTED]')
   })
 })
 
