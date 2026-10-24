@@ -1,0 +1,145 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Release bump (manual release)
+        type: choice
+        options: [patch, minor, major]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      version: ${{ steps.plan.outputs.version }}
+      pr: ${{ steps.plan.outputs.pr }}
+      upstream_repository: ${{ steps.upstream.outputs.repository }}
+      upstream_commit: ${{ steps.upstream.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUMP: ${{ inputs.bump }}
+        run: |
+          pr_json=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls")
+          labels=$(jq -r '[.[0].labels[]?.name] | join(",")' <<<"$pr_json")
+          pr=$(jq -r '.[0].number // empty' <<<"$pr_json")
+          latest=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          node .github/fork/bin/release-plan.ts --labels "$labels" --latest-tag "$latest" --bump "${BUMP:-}" >plan.json
+          cat plan.json
+          {
+            echo "publish=$(jq -r .publish plan.json)"
+            echo "version=$(jq -r '.version // empty' plan.json)"
+            echo "pr=$pr"
+          } >>"$GITHUB_OUTPUT"
+      - id: upstream
+        if: steps.plan.outputs.publish == 'true'
+        run: |
+          repo=$(jq -r .repository .github/fork/upstream.json)
+          branch=$(jq -r .branch .github/fork/upstream.json)
+          git fetch --quiet --no-tags "https://github.com/$repo.git" "$branch"
+          echo "repository=$repo" >>"$GITHUB_OUTPUT"
+          echo "commit=$(git merge-base HEAD FETCH_HEAD)" >>"$GITHUB_OUTPUT"
+      - if: steps.plan.outputs.publish == 'true'
+        run: npm ci --ignore-scripts && npm run build && npm test
+      - if: steps.plan.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          UP_REPO: ${{ steps.upstream.outputs.repository }}
+          UP_COMMIT: ${{ steps.upstream.outputs.commit }}
+        run: |
+          node .github/fork/bin/stamp.ts --file package.json --version "$VERSION" \
+            --upstream-repository "$UP_REPO" --upstream-commit "$UP_COMMIT"
+          mkdir -p pack
+          npm pack --ignore-scripts --pack-destination pack
+      - if: steps.plan.outputs.publish == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: package
+          path: pack/*.tgz
+
+  publish:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: read
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      PR: ${{ needs.build.outputs.pr }}
+      UP_REPO: ${{ needs.build.outputs.upstream_repository }}
+      UP_COMMIT: ${{ needs.build.outputs.upstream_commit }}
+    steps:
+      # Only fork tooling is checked out: no package.json or .npmrc at the root, so no repo config affects npm.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          sparse-checkout: /.github/fork/
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@11.8.0 && npm --version
+      - uses: actions/download-artifact@v8
+        with:
+          name: package
+          path: pkg
+      - name: Publish (trusted publishing, provenance)
+        run: |
+          tgz=$(ls pkg/*.tgz)
+          name=$(tar -xOzf "$tgz" package/package.json | jq -r .name)
+          if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+            echo "$name@$VERSION is already published"
+          else
+            npm publish "$tgz" --provenance --access public --ignore-scripts
+          fi
+      - name: Tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$VERSION"
+          prev=$(git tag --list 'v*' --sort=-v:refname | grep -vx "$tag" | head -n1 || true)
+          prev_up=""
+          range="HEAD"
+          if [ -n "$prev" ]; then
+            prev_up=$(git tag -l --format='%(contents)' "$prev" | sed -n 's/^upstream-commit: //p')
+            range="$prev..HEAD"
+          fi
+          git log --first-parent -n 50 --format='%s' "$range" >commits.txt
+          : >comments.jsonl
+          if [ -n "$PR" ]; then
+            gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --jq '.[] | select(.user.type == "Bot") | {body} | @json' >comments.jsonl
+          fi
+          node .github/fork/bin/release-notes.ts --version "$VERSION" --upstream-repository "$UP_REPO" \
+            --prev-upstream "$prev_up" --upstream-commit "$UP_COMMIT" \
+            --comments comments.jsonl --commits commits.txt >notes.md
+          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$tag" -m "upstream-commit: $UP_COMMIT"
+            git push origin "$tag"
+          fi
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes-file notes.md --verify-tag
