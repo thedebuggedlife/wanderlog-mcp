@@ -41,7 +41,7 @@ async function main() {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
   await server.connect(transport);
-  process.stderr.write("[wanderdog] ready (stdio)\n");
+  process.stderr.write("[wanderdog] ready (stdio transport)\n");
 }
 
 main().catch((err) => {
