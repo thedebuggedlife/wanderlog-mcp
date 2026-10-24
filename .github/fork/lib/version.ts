@@ -5,9 +5,7 @@ const LABEL_RE = /^release:(major|minor|patch|none)$/
 const BUMPS: readonly string[] = ['major', 'minor', 'patch']
 
 export function releaseFromLabels(labels: string[]): ReleaseLabel | null {
-  const found = labels
-    .map((l) => LABEL_RE.exec(l)?.[1])
-    .filter((v): v is string => v !== undefined)
+  const found = labels.map((l) => LABEL_RE.exec(l)?.[1]).filter((v): v is string => v !== undefined)
   if (found.length === 0) return null
   const distinct = [...new Set(found)]
   if (distinct.length > 1) throw new Error(`Conflicting release labels: ${distinct.join(', ')}`)
@@ -26,11 +24,11 @@ export function nextVersion(latestTag: string | null, bump: Bump): string {
   return `${major}.${minor}.${patch + 1}`
 }
 
-export function planRelease(i: {
-  labels: string[]
-  latestTag: string | null
-  bump?: string
-}): { publish: boolean; version?: string; reason?: string } {
+export function planRelease(i: { labels: string[]; latestTag: string | null; bump?: string }): {
+  publish: boolean
+  version?: string
+  reason?: string
+} {
   let release: ReleaseLabel | null
   if (i.bump) {
     if (!BUMPS.includes(i.bump)) throw new Error(`Invalid bump: ${i.bump}`)
