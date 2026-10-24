@@ -18,6 +18,7 @@ import { addPlace, addPlaceDescription, addPlaceInputSchema } from "./tools/add-
 import { createTrip, createTripDescription, createTripInputSchema } from "./tools/create-trip.js";
 import { getTrip, getTripDescription, getTripInputSchema } from "./tools/get-trip.js";
 import { getTripUrl, getTripUrlDescription, getTripUrlInputSchema } from "./tools/get-trip-url.js";
+import { dryrunPing, dryrunPingDescription, dryrunPingInputSchema } from "./tools/dryrun-ping.js";
 import {
   getTripForwardingEmail,
   getTripForwardingEmailDescription,
@@ -233,6 +234,16 @@ export function buildServer(ctx: AppContext): McpServer {
       inputSchema: getTripUrlInputSchema,
     },
     requireAuth(ctx, async (args) => getTripUrl(ctx, args as Parameters<typeof getTripUrl>[1])),
+  );
+
+  server.registerTool(
+    "wanderlog_dryrun_ping",
+    {
+      title: "Dry-run ping",
+      description: dryrunPingDescription,
+      inputSchema: dryrunPingInputSchema,
+    },
+    requireAuth(ctx, async (args) => dryrunPing(ctx, args as Parameters<typeof dryrunPing>[1])),
   );
 
   server.registerTool(
