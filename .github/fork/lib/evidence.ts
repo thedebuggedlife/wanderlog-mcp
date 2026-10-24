@@ -1,3 +1,5 @@
+import type { ToolsDiff } from './tools.ts'
+
 export type EvidenceKind =
   'dependency' | 'audit' | 'lifecycle' | 'bin' | 'host' | 'risky-api' | 'sensitive-file' | 'tool' | 'tools-list'
 
@@ -310,4 +312,22 @@ export function sensitiveFileItems(changed: string[]): EvidenceItem[] {
       detail: `${f} changed (cookie/transport handling or npm config)`,
     }))
     .sort(byId)
+}
+
+export function toolItems(d: ToolsDiff): EvidenceItem[] {
+  const items: EvidenceItem[] = [
+    ...d.added.map((n): EvidenceItem => ({ id: `tool:added:${n}`, kind: 'tool', detail: `Tool added: ${n}` })),
+    ...d.removed.map((n): EvidenceItem => ({ id: `tool:removed:${n}`, kind: 'tool', detail: `Tool removed: ${n}` })),
+    ...d.newlyRequired.map((r): EvidenceItem => ({
+      id: `tool:required:${r.tool}`,
+      kind: 'tool',
+      detail: `${r.tool} now requires: ${r.params.join(', ')}`,
+    })),
+    ...d.removedParams.map((r): EvidenceItem => ({
+      id: `tool:params-removed:${r.tool}`,
+      kind: 'tool',
+      detail: `${r.tool} no longer accepts: ${r.params.join(', ')}`,
+    })),
+  ]
+  return items.sort(byId)
 }
