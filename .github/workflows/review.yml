@@ -172,6 +172,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           path: pr-head
           persist-credentials: false
+      - name: Remove agent instruction and config files from pr-head/ (any depth)
+        run: |
+          find pr-head \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name .mcp.json -o -name .claude \) -prune -exec rm -rf {} +
+          test -z "$(find pr-head \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name .mcp.json -o -name .claude \) -print -quit)"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.static.outputs.analysis_id }}

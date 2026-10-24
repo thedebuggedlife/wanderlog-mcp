@@ -94,6 +94,45 @@ describe('sensitiveFileItems', () => {
       'sensitive-file:src/config.ts',
     ])
   })
+  it('reports agent instruction and config files at any depth', () => {
+    const changed = [
+      'src/CLAUDE.md',
+      'docs/deep/CLAUDE.local.md',
+      'tools/.mcp.json',
+      'src/.claude/settings.json',
+      '.claude/commands/x.md',
+      'src/claude.ts',
+      'src/NOTCLAUDE.md',
+      'src/x.claude/y.ts',
+    ]
+    expect(sensitiveFileItems(changed)).toEqual([
+      {
+        id: 'sensitive-file:.claude/commands/x.md',
+        kind: 'sensitive-file',
+        detail: '.claude/commands/x.md changed (Claude agent instructions or MCP config)',
+      },
+      {
+        id: 'sensitive-file:docs/deep/CLAUDE.local.md',
+        kind: 'sensitive-file',
+        detail: 'docs/deep/CLAUDE.local.md changed (Claude agent instructions or MCP config)',
+      },
+      {
+        id: 'sensitive-file:src/.claude/settings.json',
+        kind: 'sensitive-file',
+        detail: 'src/.claude/settings.json changed (Claude agent instructions or MCP config)',
+      },
+      {
+        id: 'sensitive-file:src/CLAUDE.md',
+        kind: 'sensitive-file',
+        detail: 'src/CLAUDE.md changed (Claude agent instructions or MCP config)',
+      },
+      {
+        id: 'sensitive-file:tools/.mcp.json',
+        kind: 'sensitive-file',
+        detail: 'tools/.mcp.json changed (Claude agent instructions or MCP config)',
+      },
+    ])
+  })
 })
 
 const addedSrc = (text: string): string => ['--- a/src/a.ts', '+++ b/src/a.ts', '@@ -0,0 +1 @@', `+${text}`].join('\n')

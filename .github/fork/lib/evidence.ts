@@ -322,15 +322,31 @@ export function riskyApiItems(diff: string): EvidenceItem[] {
 
 export const SENSITIVE_FILES = ['src/config.ts', 'src/transport/rest.ts', 'src/transport/sharedb.ts', '.npmrc']
 
+export const AGENT_FILE_NAMES = ['CLAUDE.md', 'CLAUDE.local.md', '.mcp.json']
+
+const isAgentFile = (path: string): boolean => {
+  const segments = path.split('/')
+  return AGENT_FILE_NAMES.includes(segments[segments.length - 1]!) || segments.includes('.claude')
+}
+
 export function sensitiveFileItems(changed: string[]): EvidenceItem[] {
-  return changed
-    .filter((f) => SENSITIVE_FILES.includes(f))
-    .map((f): EvidenceItem => ({
-      id: `sensitive-file:${f}`,
-      kind: 'sensitive-file',
-      detail: `${f} changed (cookie/transport handling or npm config)`,
-    }))
-    .sort(byId)
+  const items: EvidenceItem[] = []
+  for (const f of changed) {
+    if (SENSITIVE_FILES.includes(f)) {
+      items.push({
+        id: `sensitive-file:${f}`,
+        kind: 'sensitive-file',
+        detail: `${f} changed (cookie/transport handling or npm config)`,
+      })
+    } else if (isAgentFile(f)) {
+      items.push({
+        id: `sensitive-file:${f}`,
+        kind: 'sensitive-file',
+        detail: `${f} changed (Claude agent instructions or MCP config)`,
+      })
+    }
+  }
+  return items.sort(byId)
 }
 
 export function toolItems(d: ToolsDiff): EvidenceItem[] {
