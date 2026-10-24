@@ -45,6 +45,8 @@ when the diff makes the reason clear, and one that does not can still be dangero
    runtime values, or encoded/obfuscated, need a convincing justification.
 4. **New runtime dependencies** need a reason in the diff. Version bumps of existing packages are normally fine;
    check the audit and signature results.
+   Dependencies resolved from anywhere other than the public npm registry (`lockfile-source:*` items — git, file or
+   link sources) need a convincing justification.
 5. **Lifecycle scripts and `bin` changes** (`postinstall`, `prepare`, `prepublishOnly`, …) run code at install
    or publish time — almost never legitimate here.
 6. **Risky APIs** — `child_process`, `eval`/`Function` constructors, filesystem writes, servers/sockets,

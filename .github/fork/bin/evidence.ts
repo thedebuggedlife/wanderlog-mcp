@@ -5,12 +5,13 @@ import {
   auditItems,
   dependencyItems,
   hostItems,
+  lockfileSourceItems,
   packageItems,
   riskyApiItems,
   sensitiveFileItems,
   toolItems,
 } from '../lib/evidence.ts'
-import type { AuditReport, EvidenceItem, NpmLsNode, PackageJson, SourceFile } from '../lib/evidence.ts'
+import type { AuditReport, EvidenceItem, NpmLsNode, PackageJson, PackageLock, SourceFile } from '../lib/evidence.ts'
 import { diffTools } from '../lib/tools.ts'
 import type { ToolInfo, ToolsDiff } from '../lib/tools.ts'
 import { PLACEHOLDER_ENV, listTools } from '../lib/tools-list.ts'
@@ -23,6 +24,7 @@ const { values } = parseArgs({
     changed: { type: 'string' },
     'base-ls': { type: 'string' },
     'head-ls': { type: 'string' },
+    'head-lock': { type: 'string' },
     audit: { type: 'string' },
     'sig-status': { type: 'string' },
     'sig-log': { type: 'string' },
@@ -60,6 +62,21 @@ async function tools(root: string): Promise<ToolInfo[] | Error> {
   }
 }
 
+function lockItems(path: string | undefined): EvidenceItem[] {
+  if (!path || !existsSync(path)) return []
+  const lock = readJson<PackageLock>(path)
+  if (lock === null || typeof lock !== 'object') {
+    return [
+      {
+        id: 'lockfile-source:unparseable',
+        kind: 'lockfile-source',
+        detail: 'The head package-lock.json could not be parsed',
+      },
+    ]
+  }
+  return lockfileSourceItems(lock)
+}
+
 const base = values.base ?? 'base'
 const head = values.head ?? 'head'
 const noTools = new Error('tools/list skipped')
@@ -71,6 +88,7 @@ const items: EvidenceItem[] = [
     readJson<PackageJson>(join(base, 'package.json')) ?? {},
     readJson<PackageJson>(join(head, 'package.json')) ?? {},
   ),
+  ...lockItems(values['head-lock']),
   ...auditItems(readJson<AuditReport>(values.audit), {
     ok: readText(values['sig-status']).trim() === 'ok',
     log: readText(values['sig-log']),

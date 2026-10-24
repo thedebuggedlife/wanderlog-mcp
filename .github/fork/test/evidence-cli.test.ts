@@ -91,3 +91,27 @@ it('--no-tools never executes dist/index.js and emits no tool evidence', () => {
   expect(report.tools).toEqual({ base: [], head: [] })
   expect(existsSync(marker)).toBe(false)
 })
+
+it('--head-lock reports non-registry lockfile sources, and unparseable lockfiles', () => {
+  tree(join(dir, 'base'), 'export {}')
+  tree(join(dir, 'head'), 'export {}')
+  const run = (lock: string) => {
+    writeFileSync(join(dir, 'package-lock.json'), lock)
+    execFileSync(process.execPath, [
+      cli,
+      '--base',
+      join(dir, 'base'),
+      '--head',
+      join(dir, 'head'),
+      '--head-lock',
+      join(dir, 'package-lock.json'),
+      '--no-tools',
+      '--out',
+      join(dir, 'evidence.json'),
+    ])
+    return JSON.parse(readFileSync(join(dir, 'evidence.json'), 'utf8')).items.map((i: { id: string }) => i.id)
+  }
+  const git = { packages: { '': {}, 'node_modules/evil': { resolved: 'git+ssh://git@example.com/evil.git#abc' } } }
+  expect(run(JSON.stringify(git))).toContain('lockfile-source:node_modules/evil')
+  expect(run('{not json')).toContain('lockfile-source:unparseable')
+})

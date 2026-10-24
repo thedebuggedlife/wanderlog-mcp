@@ -1,7 +1,16 @@
 import type { ToolsDiff } from './tools.ts'
 
 export type EvidenceKind =
-  'dependency' | 'audit' | 'lifecycle' | 'bin' | 'host' | 'risky-api' | 'sensitive-file' | 'tool' | 'tools-list'
+  | 'dependency'
+  | 'audit'
+  | 'lifecycle'
+  | 'bin'
+  | 'host'
+  | 'risky-api'
+  | 'sensitive-file'
+  | 'tool'
+  | 'tools-list'
+  | 'lockfile-source'
 
 export interface EvidenceItem {
   id: string
@@ -330,4 +339,24 @@ export function toolItems(d: ToolsDiff): EvidenceItem[] {
     })),
   ]
   return items.sort(byId)
+}
+
+export interface PackageLock {
+  packages?: Record<string, { resolved?: string; link?: boolean }>
+}
+
+const NPM_REGISTRY = 'https://registry.npmjs.org/'
+
+export function lockfileSourceItems(lock: PackageLock | null): EvidenceItem[] {
+  return Object.entries(lock?.packages ?? {})
+    .filter(
+      ([key, p]) =>
+        key !== '' && (p.link === true || (p.resolved !== undefined && !p.resolved.startsWith(NPM_REGISTRY))),
+    )
+    .map(([key, p]): EvidenceItem => ({
+      id: `lockfile-source:${key}`,
+      kind: 'lockfile-source',
+      detail: `${key} resolves from ${p.link === true ? 'a local link' : p.resolved}`,
+    }))
+    .sort(byId)
 }

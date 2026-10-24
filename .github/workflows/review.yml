@@ -22,6 +22,8 @@ jobs:
       contents: read
     outputs:
       conflict: ${{ steps.conflict.outputs.conflict }}
+      analysis_id: ${{ steps.upload-analysis.outputs.artifact-id }}
+      analysis_digest: ${{ steps.upload-analysis.outputs.artifact-digest }}
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
     steps:
@@ -56,25 +58,30 @@ jobs:
         run: |
           if [ -s conflicts.txt ]; then echo conflict=true; else echo conflict=false; fi >>"$GITHUB_OUTPUT"
 
-      - name: Install dependencies without lifecycle scripts
+      - name: Install dependencies from scratch dirs (no tree npm config, no git)
         run: |
-          (cd head && npm ci --ignore-scripts)
-          (cd base && npm ci --ignore-scripts)
+          for side in base head; do
+            mkdir -p "npm-$side"
+            cp "$side/package.json" "$side/package-lock.json" "npm-$side/" || echo "missing package files for $side"
+            (cd "npm-$side" && npm ci --ignore-scripts --no-audit --no-fund --git=/bin/false) || echo "npm ci failed for $side"
+          done
 
       - name: Dependency trees and audits
         run: |
-          (cd base && npm ls --omit=dev --all --json >../base-ls.json 2>/dev/null || true)
-          (cd head && npm ls --omit=dev --all --json >../head-ls.json 2>/dev/null || true)
-          if (cd head && npm audit signatures >../sig.txt 2>&1); then echo ok >sig-status; else echo fail >sig-status; fi
-          (cd head && npm audit --omit=dev --json >../audit.json 2>/dev/null || true)
+          (cd npm-base && npm ls --omit=dev --all --json >../base-ls.json 2>/dev/null || true)
+          (cd npm-head && npm ls --omit=dev --all --json >../head-ls.json 2>/dev/null || true)
+          if (cd npm-head && npm audit signatures >../sig.txt 2>&1); then echo ok >sig-status; else echo fail >sig-status; fi
+          (cd npm-head && npm audit --omit=dev --json >../audit.json 2>/dev/null || true)
 
       - name: Evidence
         run: >-
           node base/.github/fork/bin/evidence.ts --base base --head head --diff diff.patch
-          --changed changed.txt --base-ls base-ls.json --head-ls head-ls.json --audit audit.json
+          --changed changed.txt --base-ls base-ls.json --head-ls head-ls.json --head-lock head/package-lock.json
+          --audit audit.json
           --sig-status sig-status --sig-log sig.txt --no-tools --out evidence.json
 
-      - uses: actions/upload-artifact@v7
+      - id: upload-analysis
+        uses: actions/upload-artifact@v7
         with:
           name: analysis
           path: |
@@ -163,7 +170,8 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
-          name: analysis
+          artifact-ids: ${{ needs.static.outputs.analysis_id }}
+          digest-mismatch: error
           path: analysis
       - uses: actions/download-artifact@v8
         continue-on-error: true
@@ -219,10 +227,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - uses: actions/download-artifact@v8
+      - if: ${{ needs.static.outputs.analysis_id != '' }}
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
-          name: analysis
+          artifact-ids: ${{ needs.static.outputs.analysis_id }}
+          digest-mismatch: error
           path: analysis
       - name: Gates
         env:
