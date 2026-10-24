@@ -90,7 +90,7 @@ export function decide(i: {
   }
 }
 
-const ZERO_WIDTH_RE = /[\u200B\u200C\u200D\u2060\uFEFF]/g
+const ZERO_WIDTH_RE = /\u200B|\u200C|\u200D|\u2060|\uFEFF/g
 const TOKEN_RE = /(?:sk-ant-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g
 
 export function redact(text: string): string {
