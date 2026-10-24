@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nextVersion, planRelease, releaseFromLabels } from '../lib/version.ts'
+import { maxRelease, nextVersion, planRelease, releaseFromLabels } from '../lib/version.ts'
 
 describe('releaseFromLabels', () => {
   it('returns null without a release label', () => {
@@ -16,6 +16,26 @@ describe('releaseFromLabels', () => {
   })
   it('throws on conflicting labels', () => {
     expect(() => releaseFromLabels(['release:minor', 'release:patch'])).toThrow(/Conflicting/)
+  })
+})
+
+describe('maxRelease', () => {
+  it('returns null when no PR has a release label', () => {
+    expect(maxRelease([])).toBeNull()
+    expect(maxRelease([['bug'], []])).toBeNull()
+  })
+  it('takes the largest bump across PRs (one major + one patch → major)', () => {
+    expect(maxRelease([['release:patch'], ['release:major']])).toBe('major')
+  })
+  it.each([
+    [[['release:none'], ['release:patch']], 'patch'],
+    [[['release:minor'], ['release:patch'], ['release:none']], 'minor'],
+    [[['release:none'], ['bug']], 'none'],
+  ] as const)('%j → %s', (sets, expected) => {
+    expect(maxRelease(sets.map((l) => [...l]))).toBe(expected)
+  })
+  it('still throws on conflicting labels within one PR', () => {
+    expect(() => maxRelease([['release:patch'], ['release:minor', 'release:major']])).toThrow(/Conflicting/)
   })
 })
 
@@ -60,5 +80,22 @@ describe('planRelease', () => {
   })
   it('rejects an invalid explicit bump', () => {
     expect(() => planRelease({ labels: [], latestTag: null, bump: 'huge' })).toThrow(/Invalid bump/)
+  })
+  it('uses the maximum over labelSets when given, ignoring labels', () => {
+    expect(
+      planRelease({ labels: ['release:none'], labelSets: [['release:patch'], ['release:major']], latestTag: 'v1.2.3' }),
+    ).toEqual({ publish: true, version: '2.0.0' })
+  })
+  it('skips when no PR in labelSets has a release label', () => {
+    expect(planRelease({ labels: ['release:minor'], labelSets: [[], ['bug']], latestTag: 'v1.2.3' })).toEqual({
+      publish: false,
+      reason: 'No release:* label on any PR merged since the last release',
+    })
+  })
+  it('an explicit bump overrides labelSets', () => {
+    expect(planRelease({ labels: [], labelSets: [['release:major']], latestTag: 'v1.2.3', bump: 'patch' })).toEqual({
+      publish: true,
+      version: '1.2.4',
+    })
   })
 })

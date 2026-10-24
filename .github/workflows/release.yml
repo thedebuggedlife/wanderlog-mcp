@@ -43,6 +43,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BUMP: ${{ inputs.bump }}
         run: |
+          set -o pipefail
           fork_tags() {
             git for-each-ref --sort=-v:refname --format='%(refname:short)%09%(objecttype)%09%(contents:subject)' "$@" 'refs/tags/v*' \
               | node .github/fork/bin/fork-tags.ts
@@ -65,7 +66,19 @@ jobs:
           labels=$(jq -r '[.labels[]?.name] | join(",")' <<<"$pr_json")
           pr=$(jq -r '.number // empty' <<<"$pr_json")
           latest=$(fork_tags | head -n1)
-          node .github/fork/bin/release-plan.ts --labels "$labels" --latest-tag "$latest" --bump "${BUMP:-}" >plan.json
+          label_sets=()
+          if [ -n "$latest" ]; then
+            sets='[]'
+            for sha in $(git rev-list --first-parent "$latest..HEAD"); do
+              set_json=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" \
+                | jq -c '[.[] | select(.merged_at != null and .base.ref == "main")][0] | [.labels[]?.name]')
+              sets=$(jq -c --argjson s "$set_json" '. + [$s]' <<<"$sets")
+            done
+            echo "labels of PRs merged since $latest: $sets"
+            label_sets=(--labels-json "$sets")
+          fi
+          node .github/fork/bin/release-plan.ts --labels "$labels" "${label_sets[@]}" --latest-tag "$latest" \
+            --bump "${BUMP:-}" >plan.json
           cat plan.json
           emit "$(jq -r .publish plan.json)" "$(jq -r '.version // empty' plan.json)" "$pr"
       - id: upstream

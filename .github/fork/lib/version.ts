@@ -12,6 +12,17 @@ export function releaseFromLabels(labels: string[]): ReleaseLabel | null {
   return distinct[0] as ReleaseLabel
 }
 
+const RANK: readonly ReleaseLabel[] = ['none', 'patch', 'minor', 'major']
+
+export function maxRelease(perPr: string[][]): ReleaseLabel | null {
+  let max: ReleaseLabel | null = null
+  for (const labels of perPr) {
+    const release = releaseFromLabels(labels)
+    if (release !== null && (max === null || RANK.indexOf(release) > RANK.indexOf(max))) max = release
+  }
+  return max
+}
+
 export function nextVersion(latestTag: string | null, bump: Bump): string {
   if (latestTag === null) return '1.0.0'
   const m = /^v(\d+)\.(\d+)\.(\d+)$/.exec(latestTag)
@@ -24,7 +35,7 @@ export function nextVersion(latestTag: string | null, bump: Bump): string {
   return `${major}.${minor}.${patch + 1}`
 }
 
-export function planRelease(i: { labels: string[]; latestTag: string | null; bump?: string }): {
+export function planRelease(i: { labels: string[]; labelSets?: string[][]; latestTag: string | null; bump?: string }): {
   publish: boolean
   version?: string
   reason?: string
@@ -33,6 +44,10 @@ export function planRelease(i: { labels: string[]; latestTag: string | null; bum
   if (i.bump) {
     if (!BUMPS.includes(i.bump)) throw new Error(`Invalid bump: ${i.bump}`)
     release = i.bump as Bump
+  } else if (i.labelSets) {
+    release = maxRelease(i.labelSets)
+    if (release === null)
+      return { publish: false, reason: 'No release:* label on any PR merged since the last release' }
   } else {
     release = releaseFromLabels(i.labels)
   }
