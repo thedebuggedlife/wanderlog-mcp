@@ -13,7 +13,7 @@
         "required": ["item", "disposition"],
         "properties": {
           "item": { "type": "string" },
-          "disposition": { "type": "string" }
+          "disposition": { "type": "string", "minLength": 1 }
         }
       }
     },

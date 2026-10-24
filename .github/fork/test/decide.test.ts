@@ -60,6 +60,12 @@ describe('decide', () => {
   it('needs a human when the reviewer says so', () => {
     expect(decide({ ...base, review: { ...review, verdict: 'needs-human' } }).automerge).toBe(false)
   })
+  it('needs a human when the reviewer listed concerns, even if safe', () => {
+    const d = decide({ ...base, review: { ...review, concerns: ['new delete tool'] } })
+    expect(d.automerge).toBe(false)
+    expect(d.reasons).toContain('Reviewer listed concerns')
+    expect(d.releaseLabel).toBe('release:minor')
+  })
   it('needs a human when an evidence item has no (or a blank) disposition', () => {
     const d = decide({
       ...base,

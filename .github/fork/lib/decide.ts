@@ -70,6 +70,7 @@ export function decide(i: {
     reasons.push('Claude review missing or invalid')
   } else {
     if (i.review.verdict !== 'safe') reasons.push('Claude review verdict: needs-human')
+    if (i.review.concerns.length > 0) reasons.push('Reviewer listed concerns')
     const addressed = new Set(
       i.review.evidenceDispositions.filter((d) => d.disposition.trim() !== '').map((d) => d.item),
     )

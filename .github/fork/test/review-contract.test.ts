@@ -23,6 +23,19 @@ describe('review contract', () => {
   it('contains no single quotes, so it can be passed inside claude_args', () => {
     expect(schemaRaw).not.toContain("'")
   })
+  it('requires a non-empty disposition', () => {
+    expect(schema.properties.evidenceDispositions.items.properties.disposition.minLength).toBe(1)
+  })
+  it('keeps the security-critical prompt wording', () => {
+    for (const phrase of [
+      'untrusted data',
+      'When in doubt, `needs-human`',
+      'one entry for every `id`',
+      'A non-empty `concerns` list',
+    ]) {
+      expect(prompt).toContain(phrase)
+    }
+  })
   it('the prompt points at the paths review.yml provides', () => {
     for (const path of ['pr-head/', 'analysis/diff.patch', 'analysis/evidence.json', 'analysis/gates.json']) {
       expect(prompt).toContain(path)
