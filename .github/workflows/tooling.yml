@@ -1,0 +1,23 @@
+name: tooling
+on:
+  pull_request:
+    paths: ['.github/fork/**', '.github/workflows/**']
+  push:
+    branches: [main]
+    paths: ['.github/fork/**', '.github/workflows/**']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci
+        working-directory: .github/fork
+      - run: npm test
+        working-directory: .github/fork
