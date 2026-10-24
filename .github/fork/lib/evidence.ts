@@ -128,17 +128,26 @@ export interface SourceFile {
   content: string
 }
 
-const URL_RE = /\b(?:https?|wss?):\/\/([a-z0-9.-]+)/gi
+const URL_RE = /\b(?:https?|wss?):(?:\/\/|\\\/\\\/)([^\s\/?#"'`<>)\\]+)/gi
 
 export function isAllowedHost(host: string): boolean {
+  if (!/^[a-z0-9.-]+$/.test(host)) return false
   return host === 'wanderlog.com' || host.endsWith('.wanderlog.com') || host === 'localhost' || host === '127.0.0.1'
+}
+
+function normalizeHost(authority: string): string {
+  let host = authority.toLowerCase()
+  host = host.slice(host.lastIndexOf('@') + 1)
+  const close = host.indexOf(']')
+  host = host.startsWith('[') && close >= 0 ? host.slice(0, close + 1) : host.replace(/:\d*$/, '')
+  return host.replace(/\.$/, '')
 }
 
 export function collectHosts(files: SourceFile[]): Map<string, string[]> {
   const out = new Map<string, string[]>()
   for (const file of files) {
     for (const m of file.content.matchAll(URL_RE)) {
-      const host = m[1]!.toLowerCase().replace(/\.$/, '')
+      const host = normalizeHost(m[1]!)
       const paths = out.get(host) ?? []
       if (!paths.includes(file.path)) paths.push(file.path)
       out.set(host, paths)
@@ -164,62 +173,126 @@ export function hostItems(base: SourceFile[], head: SourceFile[]): EvidenceItem[
   return items.sort(byId)
 }
 
+const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
+const GIT_ESCAPES: Record<string, string> = { '\\': '\\', '"': '"', t: '\t', n: '\n' }
+
+function unquoteGitPath(s: string): string {
+  if (s.length < 2 || !s.startsWith('"') || !s.endsWith('"')) return s
+  const bytes: number[] = []
+  const encoder = new TextEncoder()
+  for (const token of s.slice(1, -1).match(/\\[0-7]{3}|\\[\s\S]|[^\\]+/g) ?? []) {
+    if (/^\\[0-7]{3}$/.test(token)) bytes.push(parseInt(token.slice(1), 8))
+    else if (token.startsWith('\\')) bytes.push(...encoder.encode(GIT_ESCAPES[token[1]!] ?? token[1]!))
+    else bytes.push(...encoder.encode(token))
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes))
+}
+
+function parseNewPath(raw: string): string | null {
+  const path = unquoteGitPath(raw.split('\t')[0]!)
+  return path === '/dev/null' ? null : path.replace(/^b\//, '')
+}
+
 export function addedLines(diff: string): { file: string; line: number; text: string }[] {
   const out: { file: string; line: number; text: string }[] = []
   let file: string | null = null
   let line = 0
-  let prev = ''
+  let oldLeft = 0
+  let newLeft = 0
   for (const raw of diff.split('\n')) {
-    if (raw.startsWith('+++ ') && prev.startsWith('--- ')) {
-      file = raw === '+++ /dev/null' ? null : raw.slice(4).replace(/^b\//, '')
-    } else if (raw.startsWith('diff --git ')) {
+    const atBoundary = oldLeft === 0 && newLeft === 0
+    const hunk = HUNK_RE.exec(raw)
+    if (hunk) {
+      line = Number(hunk[3])
+      oldLeft = hunk[2] === undefined ? 1 : Number(hunk[2])
+      newLeft = hunk[4] === undefined ? 1 : Number(hunk[4])
+    } else if (atBoundary && raw.startsWith('diff --git ')) {
       file = null
-    } else {
-      const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw)
-      if (hunk) {
-        line = Number(hunk[1])
-      } else if (file !== null && raw.startsWith('+')) {
-        out.push({ file, line, text: raw.slice(1) })
-        line += 1
-      } else if (file !== null && raw.startsWith(' ')) {
-        line += 1
-      }
+    } else if (atBoundary && raw.startsWith('+++ ')) {
+      file = parseNewPath(raw.slice(4))
+    } else if (atBoundary && raw.startsWith('--- ')) {
+      continue
+    } else if (raw.startsWith('+')) {
+      if (file !== null) out.push({ file, line, text: raw.slice(1) })
+      newLeft = Math.max(0, newLeft - 1)
+      line += 1
+    } else if (raw.startsWith('-')) {
+      oldLeft = Math.max(0, oldLeft - 1)
+    } else if (!raw.startsWith('\\')) {
+      oldLeft = Math.max(0, oldLeft - 1)
+      newLeft = Math.max(0, newLeft - 1)
+      line += 1
     }
-    prev = raw
   }
   return out
 }
 
 const RISKY: { name: string; re: RegExp }[] = [
   { name: 'child_process', re: /\bchild_process\b/ },
-  { name: 'eval', re: /\beval\s*\(/ },
-  { name: 'new Function', re: /\bnew\s+Function\s*\(/ },
+  { name: 'eval', re: /\beval\s*\(|\(\s*0\s*,\s*eval\s*\)|\[\s*['"]eval['"]\s*\]/ },
+  { name: 'Function constructor', re: /\bFunction\s*\(/ },
   {
     name: 'filesystem write',
-    re: /\b(?:writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|mkdir|mkdirSync|rmSync|unlink|unlinkSync|rename|renameSync|copyFile|copyFileSync)\s*\(/,
+    re: /\b(?:writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|mkdir|mkdirSync|rmSync|rm|rmdir|rmdirSync|cp|cpSync|unlink|unlinkSync|rename|renameSync|copyFile|copyFileSync|truncate|truncateSync|symlink|symlinkSync|chmod|chmodSync)\s*\(|\bfs\.write(?:Sync)?\s*\(/,
   },
   { name: 'network server/socket', re: /["'](?:node:)?(?:net|dgram|tls)["']|\bcreateServer\s*\(|\.listen\s*\(/ },
-  { name: 'dynamic import', re: /\bimport\s*\(\s*[^'"`\s)]/ },
+  { name: 'sensitive module', re: /["'`](?:node:)?(?:net|dgram|tls|vm|worker_threads|http|https|http2)["'`]/ },
+  { name: 'native binding', re: /\bprocess\s*\.\s*(?:binding|dlopen)\b/ },
 ]
 
-const ENV_RE =
-  /\b(?:process\.)?env(?:\.([A-Za-z_][A-Za-z0-9_]*)|\[\s*(?:["']([A-Za-z_][A-Za-z0-9_]*)["']|([^\]]+))\s*\])/g
+export const KNOWN_WANDERLOG_ENV = [
+  'WANDERLOG_COOKIE',
+  'WANDERLOG_BASE_URL',
+  'WANDERLOG_WS_BASE_URL',
+  'WANDERLOG_USER_AGENT',
+  'WANDERLOG_DEFAULT_CURRENCY',
+]
+
+const ENV_ROOT_RE = /\bprocess\s*(?:\?\.\s*env|\.\s*env|\[\s*(['"])env\1\s*\])|(?<![\w$.])env(?=\?\.|\.|\[)/g
+const ENV_NAME_AFTER_RE = /^(?:\?\.|\.)([A-Za-z_]\w*)|^(?:\?\.)?\[\s*(['"])([A-Za-z_]\w*)\2\s*\]/
+const ENV_DYNAMIC_AFTER_RE = /^(?:\?\.)?\[/
+const IMPORT_CALL_RE = /\bimport\s*\(/g
+const STATIC_IMPORT_ARG_RE = /^\s*(?:'[^'\\]*'|"[^"\\]*"|`[^`$\\]*`)\s*[,)]/
+
+function envHits(text: string): string[] {
+  const hits: string[] = []
+  for (const m of text.matchAll(ENV_ROOT_RE)) {
+    const after = text.slice(m.index! + m[0].length)
+    const named = ENV_NAME_AFTER_RE.exec(after)
+    if (named) {
+      const name = named[1] ?? named[3]!
+      if (!KNOWN_WANDERLOG_ENV.includes(name)) hits.push(`env read ${name}`)
+    } else if (ENV_DYNAMIC_AFTER_RE.test(after)) {
+      hits.push('dynamic env read')
+    } else if (m[0].startsWith('process')) {
+      hits.push('process.env access')
+    }
+  }
+  return hits
+}
+
+function dynamicImportHits(text: string): string[] {
+  const hits: string[] = []
+  for (const m of text.matchAll(IMPORT_CALL_RE)) {
+    if (!STATIC_IMPORT_ARG_RE.test(text.slice(m.index! + m[0].length))) hits.push('dynamic import')
+  }
+  return hits
+}
 
 export function riskyApiItems(diff: string): EvidenceItem[] {
   const items: EvidenceItem[] = []
   for (const { file, line, text } of addedLines(diff)) {
     if (!file.startsWith('src/')) continue
-    const hits = RISKY.filter((p) => p.re.test(text)).map((p) => p.name)
-    for (const m of text.matchAll(ENV_RE)) {
-      const name = m[1] ?? m[2]
-      if (m[3] !== undefined) hits.push('dynamic env read')
-      else if (name !== undefined && !name.startsWith('WANDERLOG_')) hits.push(`env read ${name}`)
-    }
-    if (hits.length > 0) {
+    const hits = new Set([
+      ...RISKY.filter((p) => p.re.test(text)).map((p) => p.name),
+      ...dynamicImportHits(text),
+      ...envHits(text),
+    ])
+    if (hits.size > 0) {
       items.push({
         id: `risky-api:${file}:${line}`,
         kind: 'risky-api',
-        detail: `${hits.join(', ')}: ${text.trim().slice(0, 200)}`,
+        detail: `${[...hits].join(', ')}: ${text.trim().slice(0, 200)}`,
       })
     }
   }

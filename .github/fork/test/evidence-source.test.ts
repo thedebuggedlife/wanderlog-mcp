@@ -95,3 +95,144 @@ describe('sensitiveFileItems', () => {
     ])
   })
 })
+
+const addedSrc = (text: string): string => ['--- a/src/a.ts', '+++ b/src/a.ts', '@@ -0,0 +1 @@', `+${text}`].join('\n')
+
+describe('isAllowedHost evasions', () => {
+  it.each(['wanderlog.com_.evil.com', 'wanderlog.com%2eevil.com', 'wanderlog.com。evil.com', '[2001:db8::1]'])(
+    'rejects %s',
+    (h) => {
+      expect(isAllowedHost(h)).toBe(false)
+    },
+  )
+})
+
+describe('hostItems authority parsing', () => {
+  const base = [{ path: 'src/a.ts', content: 'https://wanderlog.com' }]
+  const head = (content: string) => [{ path: 'src/a.ts', content }]
+  it('takes the host after userinfo', () => {
+    expect(hostItems(base, head('https://wanderlog.com@evil.com/x')).map((i) => i.id)).toEqual(['host:evil.com'])
+  })
+  it('does not allow a lookalike with an underscore', () => {
+    const items = hostItems(base, head('https://wanderlog.com_.evil.com/'))
+    expect(items.map((i) => i.id)).toEqual(['host:wanderlog.com_.evil.com'])
+    expect(items[0]!.detail).toContain('non-Wanderlog')
+  })
+  it('does not allow a percent-encoded dot', () => {
+    const items = hostItems(base, head('https://wanderlog.com%2eevil.com/'))
+    expect(items.map((i) => i.id)).toEqual(['host:wanderlog.com%2eevil.com'])
+    expect(items[0]!.detail).toContain('non-Wanderlog')
+  })
+  it('reads a host from JS-escaped slashes', () => {
+    expect(hostItems(base, head('https:\\/\\/evil.com/x')).map((i) => i.id)).toEqual(['host:evil.com'])
+  })
+  it('keeps a bracketed IPv6 literal whole and strips its port', () => {
+    expect(hostItems(base, head('http://[2001:db8::1]:8080/')).map((i) => i.id)).toEqual(['host:[2001:db8::1]'])
+  })
+  it('strips userinfo before a bracketed IPv6 literal', () => {
+    expect(hostItems(base, head('http://[::1]@evil.com/')).map((i) => i.id)).toEqual(['host:evil.com'])
+  })
+  it('ignores the port on an allowlisted host', () => {
+    const files = [{ path: 'src/a.ts', content: 'http://localhost:3000/' }]
+    expect(hostItems(files, files)).toEqual([])
+  })
+})
+
+describe('addedLines hunk parsing', () => {
+  it('reads hunk content that looks like headers as content', () => {
+    const d = [
+      'diff --git a/src/a.ts b/src/a.ts',
+      '--- a/src/a.ts',
+      '+++ b/src/a.ts',
+      '@@ -1,2 +1,3 @@',
+      ' keep',
+      '--- removed',
+      '+++ b/docs/x.md',
+      '+const z = eval("x")',
+    ].join('\n')
+    expect(addedLines(d)).toEqual([
+      { file: 'src/a.ts', line: 2, text: '++ b/docs/x.md' },
+      { file: 'src/a.ts', line: 3, text: 'const z = eval("x")' },
+    ])
+    expect(riskyApiItems(d).map((i) => i.id)).toEqual(['risky-api:src/a.ts:3'])
+  })
+  it('counts an empty line inside a hunk as context', () => {
+    const d = ['--- a/src/a.ts', '+++ b/src/a.ts', '@@ -1,2 +1,2 @@', ' a', '', '+x'].join('\n')
+    expect(addedLines(d)).toEqual([{ file: 'src/a.ts', line: 3, text: 'x' }])
+  })
+  it('unquotes a C-quoted UTF-8 path', () => {
+    const d = ['--- a/src/x.ts', '+++ "b/src/caf\\303\\251.ts"', '@@ -0,0 +1 @@', '+const a = 1'].join('\n')
+    expect(addedLines(d)).toEqual([{ file: 'src/café.ts', line: 1, text: 'const a = 1' }])
+  })
+  it('strips a trailing tab from the path', () => {
+    const d = ['--- a/src/with space.ts', '+++ b/src/with space.ts\t', '@@ -0,0 +1 @@', '+const a = 1'].join('\n')
+    expect(addedLines(d)).toEqual([{ file: 'src/with space.ts', line: 1, text: 'const a = 1' }])
+  })
+})
+
+describe('riskyApiItems whole-environment and named env reads', () => {
+  const details = (text: string) => riskyApiItems(addedSrc(text)).map((i) => i.detail)
+  it('flags destructuring of process.env', () => {
+    expect(details('const { HOME, TOKEN } = process.env')).toEqual([
+      'process.env access: const { HOME, TOKEN } = process.env',
+    ])
+  })
+  it('flags serialising process.env', () => {
+    expect(details('send(JSON.stringify(process.env))')).toEqual([
+      'process.env access: send(JSON.stringify(process.env))',
+    ])
+  })
+  it('reads a named variable through optional chaining', () => {
+    expect(details('const x = process?.env?.FOO')).toEqual(['env read FOO: const x = process?.env?.FOO'])
+  })
+  it('reads a named variable through bracket notation', () => {
+    expect(details("const y = process['env'].BAR")).toEqual(["env read BAR: const y = process['env'].BAR"])
+  })
+  it('flags an unknown WANDERLOG_ variable', () => {
+    expect(details('const z = process.env.WANDERLOG_EXFIL_URL')).toEqual([
+      'env read WANDERLOG_EXFIL_URL: const z = process.env.WANDERLOG_EXFIL_URL',
+    ])
+  })
+  it('allows the known WANDERLOG_COOKIE', () => {
+    expect(details('const c = process.env.WANDERLOG_COOKIE')).toEqual([])
+  })
+  it('reports each label once per line', () => {
+    expect(details('const p = process.env.A + process.env.A')).toEqual([
+      'env read A: const p = process.env.A + process.env.A',
+    ])
+  })
+})
+
+describe('riskyApiItems dynamic import', () => {
+  const details = (text: string) => riskyApiItems(addedSrc(text)).map((i) => i.detail)
+  it('allows a static string import', () => {
+    expect(details("const m = await import('./x.ts')")).toEqual([])
+  })
+  it('flags a concatenated specifier', () => {
+    expect(details('const m = await import("./" + name)')).toEqual([
+      'dynamic import: const m = await import("./" + name)',
+    ])
+  })
+  it('flags a template specifier', () => {
+    expect(details('const m = await import(`${base}/x.js`)')).toEqual([
+      'dynamic import: const m = await import(`${base}/x.js`)',
+    ])
+  })
+  it('flags an argument on the next line', () => {
+    expect(details('const m = await import(')).toEqual(['dynamic import: const m = await import('])
+  })
+})
+
+describe('riskyApiItems extended labels', () => {
+  it.each([
+    ['Function("return 1")()', 'Function constructor'],
+    ['(0, eval)(code)', 'eval'],
+    ["globalThis['eval'](code)", 'eval'],
+    ["import vm from 'node:vm'", 'sensitive module'],
+    ["process.binding('fs')", 'native binding'],
+    ['await fs.rm(p)', 'filesystem write'],
+    ['fs.writeSync(fd, data)', 'filesystem write'],
+  ])('flags %s as %s', (text, label) => {
+    expect(riskyApiItems(addedSrc(text)).map((i) => i.detail)).toEqual([`${label}: ${text}`])
+  })
+})
