@@ -30,6 +30,13 @@ export function normalizeCookie(raw: string): string {
     );
   }
 
+  if (/[^\x20-\x7e]/.test(trimmed)) {
+    throw new WanderlogValidationError(
+      "WANDERLOG_COOKIE contains control or non-ASCII characters",
+      "Paste the connect.sid value on a single line, exactly as shown in DevTools.",
+    );
+  }
+
   if (trimmed.includes("connect.sid=")) {
     return trimmed;
   }
