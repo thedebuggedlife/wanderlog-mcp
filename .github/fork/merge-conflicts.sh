@@ -19,6 +19,6 @@ else
   if [ "$status" -gt 1 ]; then
     echo "(git merge-tree failed with exit code $status)" >>"$out"
   fi
-  tail -n +2 "$tree" | grep -vE '^(\.github/|CLAUDE\.md$|\.claude/|\.mcp\.json$)' >>"$out" || true
+  tail -n +2 "$tree" | grep -vE '^(\.github/|CLAUDE\.md$|\.claude/|\.mcp\.json$|specs/)' >>"$out" || true
 fi
 sort -u -o "$out" "$out"

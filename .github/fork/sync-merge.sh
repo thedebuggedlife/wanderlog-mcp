@@ -6,7 +6,7 @@ url=$1
 ref=$2
 branch=$3
 out=${GITHUB_OUTPUT:-/dev/stdout}
-fork_owned=(.github CLAUDE.md .claude .mcp.json)
+fork_owned=(.github CLAUDE.md .claude .mcp.json specs)
 
 git fetch --quiet --no-tags "$url" "$ref"
 up_sha=$(git rev-parse FETCH_HEAD)
