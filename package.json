@@ -1,5 +1,5 @@
 {
-  "name": "wanderlog-mcp",
+  "name": "wanderlog-mcp-dryrun",
   "version": "0.3.2",
   "description": "MCP server for Wanderlog — let Claude build and edit your trip itineraries through conversation",
   "type": "module",
