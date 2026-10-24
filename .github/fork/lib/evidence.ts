@@ -248,7 +248,7 @@ export const KNOWN_WANDERLOG_ENV = [
   'WANDERLOG_DEFAULT_CURRENCY',
 ]
 
-const ENV_ROOT_RE = /\bprocess\s*(?:\?\.\s*env|\.\s*env|\[\s*(['"])env\1\s*\])|(?<![\w$.])env(?=\?\.|\.|\[)/g
+const ENV_ROOT_RE = /\bprocess\s*(?:\?\.\s*env\b|\.\s*env\b|\[\s*(['"])env\1\s*\])|(?<![\w$])env\b(?=\?\.|\.|\[)/g
 const ENV_NAME_AFTER_RE = /^(?:\?\.|\.)([A-Za-z_]\w*)|^(?:\?\.)?\[\s*(['"])([A-Za-z_]\w*)\2\s*\]/
 const ENV_DYNAMIC_AFTER_RE = /^(?:\?\.)?\[/
 const IMPORT_CALL_RE = /\bimport\s*\(/g

@@ -236,3 +236,24 @@ describe('riskyApiItems extended labels', () => {
     expect(riskyApiItems(addedSrc(text)).map((i) => i.detail)).toEqual([`${label}: ${text}`])
   })
 })
+
+describe('riskyApiItems env reads off any object', () => {
+  const details = (text: string) => riskyApiItems(addedSrc(text)).map((i) => i.detail)
+  it('flags a named read off a required module', () => {
+    expect(details('const a = require("node:process").env.FOO')).toEqual([
+      'env read FOO: const a = require("node:process").env.FOO',
+    ])
+  })
+  it('flags a named read off another object', () => {
+    expect(details('const b = proc.env.SECRET')).toEqual(['env read SECRET: const b = proc.env.SECRET'])
+  })
+  it('flags a named read off import.meta', () => {
+    expect(details('const c = import.meta.env.X')).toEqual(['env read X: const c = import.meta.env.X'])
+  })
+  it('does not match a longer identifier after process', () => {
+    expect(details('const d = process.environment')).toEqual([])
+  })
+  it('reports process.env.NAME once', () => {
+    expect(details('const e = process.env.FOO')).toEqual(['env read FOO: const e = process.env.FOO'])
+  })
+})
