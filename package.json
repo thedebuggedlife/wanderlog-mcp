@@ -1,5 +1,9 @@
 {
+<<<<<<< HEAD
   "name": "@thedebuggedlife/wanderlog-mcp",
+=======
+  "name": "wanderlog-mcp-dryrun",
+>>>>>>> 2423f6658aaee8896fe2b25fbc278c4c6e6e7fe1
   "version": "0.3.2",
   "description": "MCP server for Wanderlog — let Claude build and edit your trip itineraries through conversation",
   "type": "module",
