@@ -1,0 +1,32 @@
+{
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "qmd@qmd": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/scripts/qmd-nudge.sh session-start",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Grep|Glob|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/scripts/qmd-nudge.sh pre-tool-use",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

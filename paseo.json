@@ -1,0 +1,9 @@
+{
+  "worktree": {
+    "setup": "npm ci && (cd .github/fork && npm ci) && { [ ! -f \"$PASEO_SOURCE_CHECKOUT_PATH/.env\" ] || cp \"$PASEO_SOURCE_CHECKOUT_PATH/.env\" .env; }",
+    "teardown": ".claude/scripts/lumen-prune.sh \"$PASEO_WORKTREE_PATH\" || true"
+  },
+  "scripts": {
+    "test": { "command": "npm run typecheck && npm test" }
+  }
+}
