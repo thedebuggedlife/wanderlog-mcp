@@ -10,7 +10,7 @@ status() {
 }
 pr_edit() { gh pr edit "$PR" --repo "$REPO" "$@"; }
 
-for label in needs-human release:major release:minor release:patch release:none; do
+for label in release:major release:minor release:patch release:none; do
   pr_edit --remove-label "$label" >/dev/null 2>&1 || true
 done
 label=$(field '.releaseLabel // empty')

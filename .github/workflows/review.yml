@@ -253,14 +253,25 @@ jobs:
         with:
           app-id: ${{ secrets.SYNC_APP_ID }}
           private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
+      - id: labels
+        name: Read the sticky needs-human label
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          sticky=$(gh pr view "$PR" --repo "$REPO" --json labels --jq '[.labels[].name] | index("needs-human") != null')
+          echo "sticky=$sticky" >>"$GITHUB_OUTPUT"
       - name: Decide
         env:
           REVIEW: ${{ needs.claude-review.outputs.review }}
           MODEL: ${{ needs.claude-review.outputs.model }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          STICKY: ${{ steps.labels.outputs.sticky }}
         run: >-
           node trusted/.github/fork/bin/decide.ts --gates gates.json --evidence analysis/evidence.json
-          --review-env REVIEW --model "$MODEL" --head-ref "$HEAD_REF" --out decision.json --comment comment.md
+          --review-env REVIEW --model "$MODEL" --head-ref "$HEAD_REF" --sticky-needs-human "$STICKY"
+          --out decision.json --comment comment.md
       - name: Apply
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}

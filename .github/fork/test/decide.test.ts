@@ -31,7 +31,7 @@ describe('parseReview', () => {
 })
 
 describe('decide', () => {
-  const base = { gates: gatesOk, evidence, review, headRef: 'sync/upstream' }
+  const base = { gates: gatesOk, evidence, review, headRef: 'sync/upstream', stickyNeedsHuman: false }
   it('auto-merges when gates pass, review is safe and all evidence is addressed', () => {
     expect(decide(base)).toEqual({
       automerge: true,
@@ -53,7 +53,7 @@ describe('decide', () => {
     expect(d.reasons).toEqual(['Gate results missing (analyze job failed)', 'Evidence report missing'])
   })
   it('fails closed when every input is missing', () => {
-    const d = decide({ gates: null, evidence: null, review: null, headRef: 'sync/upstream' })
+    const d = decide({ gates: null, evidence: null, review: null, headRef: 'sync/upstream', stickyNeedsHuman: false })
     expect(d.automerge).toBe(false)
     expect(d.reasons).toContain('Claude review missing or invalid')
   })
@@ -95,6 +95,18 @@ describe('decide', () => {
   })
   it('fails closed on a merge conflict even when gates pass', () => {
     expect(decide({ ...base, gates: { ...gatesOk, passed: true, conflict: true, reasons: [] } }).automerge).toBe(false)
+  })
+  it('keeps needing a human while the needs-human label is present', () => {
+    const d = decide({ ...base, stickyNeedsHuman: true })
+    expect(d).toMatchObject({
+      automerge: false,
+      gatesPassed: true,
+      releaseLabel: 'release:minor',
+      reasons: ['needs-human label is present (remove it and re-run to re-arm)'],
+    })
+  })
+  it('keeps a sticky dry run from passing', () => {
+    expect(decide({ ...base, headRef: 'sync/dry-run', stickyNeedsHuman: true }).automerge).toBe(false)
   })
   it('does not release an empty diff', () => {
     expect(decide({ ...base, gates: { ...gatesOk, emptyDiff: true } }).releaseLabel).toBe('release:none')
@@ -147,7 +159,7 @@ describe('renderComment', () => {
   it('starts with the marker, shows the model, and never contains tokens or live mentions', () => {
     const evil = { ...review, summary: 'ok sk-ant-oat01-SECRETSECRET123 cc @someone' }
     const body = renderComment(
-      decide({ gates: gatesOk, evidence, review: evil, headRef: 'sync/upstream' }),
+      decide({ gates: gatesOk, evidence, review: evil, headRef: 'sync/upstream', stickyNeedsHuman: false }),
       evil,
       evidence,
       'claude-opus-5-5',

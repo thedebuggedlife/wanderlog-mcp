@@ -57,8 +57,10 @@ export function decide(i: {
   evidence: EvidenceItem[] | null
   review: Review | null
   headRef: string
+  stickyNeedsHuman: boolean
 }): Decision {
   const reasons: string[] = []
+  if (i.stickyNeedsHuman) reasons.push('needs-human label is present (remove it and re-run to re-arm)')
   if (i.gates === null) {
     reasons.push('Gate results missing (analyze job failed)')
   } else {

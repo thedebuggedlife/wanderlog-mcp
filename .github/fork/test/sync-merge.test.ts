@@ -156,4 +156,30 @@ describe('sync-merge.sh', () => {
   it('merge-conflicts.sh fails closed when head is not a two-parent merge', () => {
     expect(mergeConflicts(work)).toEqual(['(head is not a two-parent merge commit)'])
   })
+
+  it('does not rebuild a sync branch that already merges the same main and upstream', () => {
+    write(up, 'src/a.ts', 'export const a = 2\n')
+    commitAll(up, 'upstream change')
+    expect(sync().changed).toBe('true')
+    git(work, 'push', '-q', '--force', 'origin', 'HEAD:refs/heads/sync/upstream')
+    const pushed = git(work, 'rev-parse', 'HEAD')
+
+    expect(sync()).toEqual({ changed: 'false' })
+    expect(git(dir, '--git-dir', join(dir, 'origin.git'), 'rev-parse', 'refs/heads/sync/upstream')).toBe(pushed)
+  })
+
+  it('rebuilds the sync branch when main moved since it was pushed', () => {
+    write(up, 'src/a.ts', 'export const a = 2\n')
+    commitAll(up, 'upstream change')
+    sync()
+    git(work, 'push', '-q', '--force', 'origin', 'HEAD:refs/heads/sync/upstream')
+    git(work, 'switch', '-q', 'main')
+    write(work, 'README.md', 'fork readme\n')
+    commitAll(work, 'fork change on main')
+    git(work, 'push', '-q', 'origin', 'main')
+
+    const out = sync()
+    expect(out.changed).toBe('true')
+    expect(git(work, 'rev-parse', 'HEAD^1')).toBe(git(work, 'rev-parse', 'origin/main'))
+  })
 })

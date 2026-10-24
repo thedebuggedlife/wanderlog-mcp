@@ -16,6 +16,15 @@ if git merge-base --is-ancestor "$up_sha" origin/main; then
   exit 0
 fi
 
+if prev=$(git rev-parse -q --verify "refs/remotes/origin/$branch^{commit}"); then
+  prev_main=$(git rev-parse -q --verify "$prev^1" || true)
+  prev_up=$(git rev-parse -q --verify "$prev^2" || true)
+  if [ "$prev_main" = "$(git rev-parse origin/main)" ] && [ "$prev_up" = "$up_sha" ]; then
+    echo "changed=false" >>"$out"
+    exit 0
+  fi
+fi
+
 merge_base=$(git merge-base origin/main "$up_sha")
 git switch --quiet -C "$branch" origin/main
 git merge --no-ff --no-commit "$up_sha" >/dev/null 2>&1 || true

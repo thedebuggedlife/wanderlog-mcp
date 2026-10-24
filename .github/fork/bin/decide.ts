@@ -9,6 +9,7 @@ const { values } = parseArgs({
     'review-env': { type: 'string', default: 'REVIEW' },
     model: { type: 'string', default: '' },
     'head-ref': { type: 'string', default: '' },
+    'sticky-needs-human': { type: 'string', default: '' },
     out: { type: 'string', default: 'decision.json' },
     comment: { type: 'string', default: 'comment.md' },
   },
@@ -25,7 +26,13 @@ const readJson = (path: string | undefined): unknown => {
 const gates = parseGates(readJson(values.gates))
 const evidence = parseEvidence(readJson(values.evidence))
 const review = parseReview(process.env[values['review-env']])
-const decision = decide({ gates, evidence, review, headRef: values['head-ref'] })
+const decision = decide({
+  gates,
+  evidence,
+  review,
+  headRef: values['head-ref'],
+  stickyNeedsHuman: values['sticky-needs-human'] !== 'false',
+})
 
 writeFileSync(values.out, JSON.stringify(decision, null, 2) + '\n')
 writeFileSync(values.comment, renderComment(decision, review, evidence, values.model) + '\n')
