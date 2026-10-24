@@ -5,6 +5,7 @@ export type EvidenceKind =
   | 'audit'
   | 'lifecycle'
   | 'bin'
+  | 'package'
   | 'host'
   | 'risky-api'
   | 'sensitive-file'
@@ -26,6 +27,8 @@ export interface NpmLsNode {
 export interface PackageJson {
   scripts?: Record<string, string>
   bin?: string | Record<string, string>
+  packageManager?: unknown
+  devEngines?: unknown
 }
 
 export interface AuditReport {
@@ -110,6 +113,13 @@ export function packageItems(base: PackageJson, head: PackageJson): EvidenceItem
   const binAfter = JSON.stringify(head.bin ?? null)
   if (binBefore !== binAfter) {
     items.push({ id: 'bin', kind: 'bin', detail: `bin: ${binBefore} → ${binAfter}` })
+  }
+  for (const field of ['packageManager', 'devEngines'] as const) {
+    const before = JSON.stringify(base[field] ?? null)
+    const after = JSON.stringify(head[field] ?? null)
+    if (before !== after) {
+      items.push({ id: `package:${field}`, kind: 'package', detail: `${field}: ${before} → ${after}` })
+    }
   }
   return items
 }

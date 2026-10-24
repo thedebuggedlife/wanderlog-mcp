@@ -59,6 +59,29 @@ describe('packageItems', () => {
     )
     expect(items.map((i) => i.id)).toEqual(['bin'])
   })
+  it('reports packageManager changes', () => {
+    expect(packageItems({ packageManager: 'npm@11.8.0' }, { packageManager: 'npm@11.9.0' })).toEqual([
+      {
+        id: 'package:packageManager',
+        kind: 'package',
+        detail: 'packageManager: "npm@11.8.0" → "npm@11.9.0"',
+      },
+    ])
+  })
+  it('reports devEngines changes, including additions', () => {
+    const devEngines = { packageManager: { name: 'npm', onFail: 'download' } }
+    expect(packageItems({}, { devEngines })).toEqual([
+      {
+        id: 'package:devEngines',
+        kind: 'package',
+        detail: `devEngines: null → ${JSON.stringify(devEngines)}`,
+      },
+    ])
+  })
+  it('ignores unchanged packageManager and devEngines', () => {
+    const pkg = { packageManager: 'npm@11.8.0', devEngines: { runtime: { name: 'node' } } }
+    expect(packageItems(pkg, structuredClone(pkg))).toEqual([])
+  })
 })
 
 describe('auditItems', () => {
