@@ -149,7 +149,7 @@ export interface SourceFile {
   content: string
 }
 
-const URL_RE = /\b(?:https?|wss?):(?:\/\/|\\\/\\\/)([^\s\/?#"'`<>)\\]+)/gi
+const URL_RE = /\b(?:https?|wss?):(?:\/\/|\\\/\\\/)([^\s/?#"'`<>)\\]+)/gi
 
 export function isAllowedHost(host: string): boolean {
   if (!/^[a-z0-9.-]+$/.test(host)) return false
