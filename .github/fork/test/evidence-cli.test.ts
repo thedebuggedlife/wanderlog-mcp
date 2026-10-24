@@ -87,8 +87,7 @@ it('--no-tools never executes dist/index.js and emits no tool evidence', () => {
   ])
   const report = JSON.parse(readFileSync(join(dir, 'evidence.json'), 'utf8'))
   expect(report.items.filter((i: { id: string }) => i.id.startsWith('tool'))).toEqual([])
-  expect(report.toolsDiff).toBeNull()
-  expect(report.tools).toEqual({ base: [], head: [] })
+  expect(Object.keys(report)).toEqual(['items'])
   expect(existsSync(marker)).toBe(false)
 })
 

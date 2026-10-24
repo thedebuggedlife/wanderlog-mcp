@@ -55,6 +55,12 @@ jobs:
               echo "pr=$3"
             } >>"$GITHUB_OUTPUT"
           }
+          tip=$(git rev-parse origin/main)
+          if [ "$GITHUB_SHA" != "$tip" ]; then
+            echo "Not publishing: $GITHUB_SHA is not the tip of main ($tip); this is a re-run of an older commit"
+            emit false "" ""
+            exit 0
+          fi
           tagged=$(fork_tags --points-at=HEAD | head -n1)
           if [ -n "$tagged" ]; then
             echo "HEAD is already released as $tagged"

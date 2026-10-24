@@ -35,6 +35,7 @@ if [ "$(field .automerge)" = "true" ]; then
   fi
   status success fork/verdict "Automated review: safe"
 else
+  gh pr merge "$PR" --repo "$REPO" --disable-auto || true
   status failure fork/verdict "Needs a human review"
   pr_edit --add-label needs-human
   if [ -n "${REVIEWER:-}" ]; then pr_edit --add-reviewer "$REVIEWER" || true; fi

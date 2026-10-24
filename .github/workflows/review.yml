@@ -284,3 +284,14 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha }}
           REVIEWER: ${{ vars.FORK_REVIEWER }}
         run: bash trusted/.github/fork/apply-verdict.sh decision.json comment.md
+      - name: Fail closed when the verdict job fails
+        if: failure() && steps.app.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api --silent "repos/$REPO/statuses/$SHA" -f state=failure -f context=fork/verdict \
+            -f description="Verdict job failed" || true
+          gh pr edit "$PR" --repo "$REPO" --add-label needs-human || true

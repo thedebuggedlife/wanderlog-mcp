@@ -117,6 +117,8 @@ if (!(baseTools instanceof Error) && !(headTools instanceof Error)) {
 }
 
 const names = (t: ToolInfo[] | Error): string[] => (t instanceof Error ? [] : t.map((x) => x.name))
-const report = { items, toolsDiff, tools: { base: names(baseTools), head: names(headTools) } }
+const report = values['no-tools']
+  ? { items }
+  : { items, toolsDiff, tools: { base: names(baseTools), head: names(headTools) } }
 writeFileSync(values.out ?? 'evidence.json', JSON.stringify(report, null, 2) + '\n')
 process.stdout.write(`${items.length} evidence item(s)\n`)
