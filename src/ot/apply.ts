@@ -119,6 +119,8 @@ function applyRichTextOp(parent: JsonContainer, key: string | number, payload: u
 function applySingleOp(doc: JsonContainer, op: Json0Op): void {
   const { p } = op;
 
+  if (p.includes("__proto__")) pathInvalid(p, "reserved key __proto__");
+
   if (p.length === 0) {
     if ("r" in op) {
       pathInvalid(p, "whole-document replacement at empty path is not supported");

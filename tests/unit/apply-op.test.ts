@@ -342,6 +342,59 @@ describe("applyOp – invalid path", () => {
   });
 });
 
+describe("applyOp – prototype pollution", () => {
+  const emptyObject = () => ({}) as Record<string, unknown>;
+
+  it("rejects an oi op whose path walks through __proto__", () => {
+    const doc = fresh(queenstownTrip);
+    const ops: Json0Op[] = [{ p: ["__proto__", "polluted"], oi: true }];
+    expect(() => applyOp(doc, ops)).toThrowError(WanderlogError);
+    try {
+      applyOp(doc, ops);
+    } catch (err) {
+      expect((err as WanderlogError).code).toBe("ot_path_invalid");
+    }
+    expect(emptyObject().polluted).toBeUndefined();
+  });
+
+  it("rejects an od op that would delete a built-in via __proto__", () => {
+    const doc = fresh(queenstownTrip);
+    const ops: Json0Op[] = [{ p: ["__proto__", "toString"], od: true }];
+    expect(() => applyOp(doc, ops)).toThrowError(WanderlogError);
+    expect(typeof emptyObject().toString).toBe("function");
+  });
+
+  it("rejects __proto__ nested deeper in the path and as the final key", () => {
+    const doc = fresh(queenstownTrip);
+    expect(() =>
+      applyOp(doc, [{ p: ["itinerary", "__proto__", "polluted"], oi: true }]),
+    ).toThrowError(WanderlogError);
+    expect(() =>
+      applyOp(doc, [{ p: ["itinerary", "__proto__"], oi: { polluted: true } }]),
+    ).toThrowError(WanderlogError);
+    expect(emptyObject().polluted).toBeUndefined();
+  });
+
+  it("rejects __proto__ in a subtype op path", () => {
+    const doc = fresh(queenstownTrip);
+    expect(() =>
+      applyOp(doc, [{ p: ["__proto__", "polluted"], t: "rich-text", o: [{ insert: "x" }] }]),
+    ).toThrowError(WanderlogError);
+    expect(emptyObject().polluted).toBeUndefined();
+  });
+
+  it("leaves the input untouched when a later op in the same call is rejected", () => {
+    const doc = fresh(queenstownTrip);
+    expect(() =>
+      applyOp(doc, [
+        { p: ["title"], r: "Mutated" },
+        { p: ["__proto__", "polluted"], oi: true },
+      ]),
+    ).toThrowError(WanderlogError);
+    expect(doc.title).toBe(queenstownTrip.title);
+  });
+});
+
 describe("applyOp – immutability", () => {
   it("does not mutate the input document", () => {
     const doc = fresh(queenstownTrip);
