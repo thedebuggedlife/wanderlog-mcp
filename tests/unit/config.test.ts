@@ -36,6 +36,28 @@ describe("normalizeCookie", () => {
     expect(() => normalizeCookie("random garbage")).toThrow(WanderlogValidationError);
     expect(() => normalizeCookie("jwt=eyJhbGci...")).toThrow(WanderlogValidationError);
   });
+
+  it.each([
+    ["LF", "s%3ASECRETVALUE.part1\npart2"],
+    ["CR", "s%3ASECRETVALUE.part1\rpart2"],
+    ["NUL", "s%3ASECRETVALUE.part1\0part2"],
+    ["tab", "s%3ASECRETVALUE.part1\tpart2"],
+    ["DEL", "s%3ASECRETVALUE.part1\x7fpart2"],
+    ["non-ASCII", "s%3ASECRETVALUE.part1\u00e9part2"],
+    ["prefixed with connect.sid=", "connect.sid=s%3ASECRETVALUE.part1\npart2"],
+  ])("rejects a cookie containing %s without echoing it", (_label, raw) => {
+    let caught: unknown;
+    try {
+      normalizeCookie(raw);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(WanderlogValidationError);
+    const message = (caught as WanderlogValidationError).toUserMessage();
+    expect(message).not.toContain("SECRETVALUE");
+    expect(message).not.toContain("part1");
+    expect(message).not.toContain("part2");
+  });
 });
 
 describe("loadConfig", () => {
@@ -52,6 +74,12 @@ describe("loadConfig", () => {
 
   it("throws actionable error when WANDERLOG_COOKIE is missing", () => {
     expect(() => loadConfig({} as NodeJS.ProcessEnv)).toThrow(WanderlogValidationError);
+  });
+
+  it("rejects a multi-line cookie without echoing it", () => {
+    const env = { WANDERLOG_COOKIE: "s%3ASECRETVALUE.part1\npart2" } as NodeJS.ProcessEnv;
+    expect(() => loadConfig(env)).toThrow(WanderlogValidationError);
+    expect(() => loadConfig(env)).not.toThrow(/SECRETVALUE|part1|part2/);
   });
 
   it("allows base URL override", () => {

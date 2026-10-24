@@ -1,5 +1,5 @@
 {
-  "name": "wanderlog-mcp",
+  "name": "@thedebuggedlife/wanderlog-mcp",
   "version": "0.3.2",
   "description": "MCP server for Wanderlog — let Claude build and edit your trip itineraries through conversation",
   "type": "module",
@@ -27,9 +27,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shaikhspeare/wanderlog-mcp.git"
+    "url": "git+https://github.com/thedebuggedlife/wanderlog-mcp.git"
   },
-  "homepage": "https://github.com/shaikhspeare/wanderlog-mcp#readme",
+  "homepage": "https://github.com/thedebuggedlife/wanderlog-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/thedebuggedlife/wanderlog-mcp/issues"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx --env-file=.env src/index.ts",

@@ -1,0 +1,187 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Release bump (manual release)
+        type: choice
+        options: [patch, minor, major]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      version: ${{ steps.plan.outputs.version }}
+      pr: ${{ steps.plan.outputs.pr }}
+      upstream_repository: ${{ steps.upstream.outputs.repository }}
+      upstream_commit: ${{ steps.upstream.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -o pipefail
+          fork_tags() {
+            git for-each-ref --sort=-v:refname --format='%(refname:short)%09%(objecttype)%09%(contents:subject)' "$@" 'refs/tags/v*' \
+              | node .github/fork/bin/fork-tags.ts
+          }
+          emit() {
+            {
+              echo "publish=$1"
+              echo "version=$2"
+              echo "pr=$3"
+            } >>"$GITHUB_OUTPUT"
+          }
+          tip=$(git rev-parse origin/main)
+          if [ "$GITHUB_SHA" != "$tip" ]; then
+            echo "Not publishing: $GITHUB_SHA is not the tip of main ($tip); this is a re-run of an older commit"
+            emit false "" ""
+            exit 0
+          fi
+          tagged=$(fork_tags --points-at=HEAD | head -n1)
+          if [ -n "$tagged" ]; then
+            echo "HEAD is already released as $tagged"
+            emit true "${tagged#v}" ""
+            exit 0
+          fi
+          pr_json=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            | jq '[.[] | select(.merged_at != null and .base.ref == "main")][0]')
+          labels=$(jq -r '[.labels[]?.name] | join(",")' <<<"$pr_json")
+          pr=$(jq -r '.number // empty' <<<"$pr_json")
+          latest=$(fork_tags | head -n1)
+          label_sets=()
+          if [ -n "$latest" ]; then
+            sets='[]'
+            for sha in $(git rev-list --first-parent "$latest..HEAD"); do
+              set_json=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" \
+                | jq -c '[.[] | select(.merged_at != null and .base.ref == "main")][0] | [.labels[]?.name]')
+              sets=$(jq -c --argjson s "$set_json" '. + [$s]' <<<"$sets")
+            done
+            echo "labels of PRs merged since $latest: $sets"
+            label_sets=(--labels-json "$sets")
+          fi
+          node .github/fork/bin/release-plan.ts --labels "$labels" "${label_sets[@]}" --latest-tag "$latest" \
+            --bump "${BUMP:-}" >plan.json
+          cat plan.json
+          emit "$(jq -r .publish plan.json)" "$(jq -r '.version // empty' plan.json)" "$pr"
+      - id: upstream
+        if: steps.plan.outputs.publish == 'true'
+        run: |
+          repo=$(jq -r .repository .github/fork/upstream.json)
+          branch=$(jq -r .branch .github/fork/upstream.json)
+          git fetch --quiet --no-tags "https://github.com/$repo.git" "$branch"
+          echo "repository=$repo" >>"$GITHUB_OUTPUT"
+          echo "commit=$(git merge-base HEAD FETCH_HEAD)" >>"$GITHUB_OUTPUT"
+      - if: steps.plan.outputs.publish == 'true'
+        run: npm ci --ignore-scripts && npm run build && npm test
+      - if: steps.plan.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          UP_REPO: ${{ steps.upstream.outputs.repository }}
+          UP_COMMIT: ${{ steps.upstream.outputs.commit }}
+        run: |
+          node .github/fork/bin/stamp.ts --file package.json --version "$VERSION" \
+            --upstream-repository "$UP_REPO" --upstream-commit "$UP_COMMIT"
+          mkdir -p pack
+          npm pack --ignore-scripts --pack-destination pack
+      - if: steps.plan.outputs.publish == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package
+          path: pack/*.tgz
+
+  publish:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: read
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      PR: ${{ needs.build.outputs.pr }}
+      UP_REPO: ${{ needs.build.outputs.upstream_repository }}
+      UP_COMMIT: ${{ needs.build.outputs.upstream_commit }}
+    steps:
+      # Only fork tooling is checked out: no package.json or .npmrc at the root, so no repo config affects npm.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          sparse-checkout: /.github/fork/
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@11.8.0 && npm --version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: pkg
+      - name: Publish (trusted publishing, provenance)
+        run: |
+          tgz=$(ls pkg/*.tgz)
+          name=$(tar -xOzf "$tgz" package/package.json | jq -r .name)
+          packed=$(tar -xOzf "$tgz" package/package.json | jq -r .version)
+          if [ "$packed" != "$VERSION" ]; then
+            echo "tarball version $packed does not match planned $VERSION" >&2
+            exit 1
+          fi
+          if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+            echo "$name@$VERSION is already published"
+          else
+            npm publish "$tgz" --provenance --access public --ignore-scripts
+          fi
+      - name: Tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$VERSION"
+          prev=$(git for-each-ref --sort=-v:refname --format='%(refname:short)%09%(objecttype)%09%(contents:subject)' 'refs/tags/v*' \
+            | node .github/fork/bin/fork-tags.ts | grep -vx "$tag" | head -n1 || true)
+          prev_up=""
+          range="HEAD"
+          if [ -n "$prev" ]; then
+            prev_up=$(git tag -l --format='%(contents)' "$prev" | sed -n 's/^upstream-commit: //p')
+            range="$prev..HEAD"
+          fi
+          git log --first-parent -n 50 --format='%s' "$range" >commits.txt
+          : >comments.jsonl
+          if [ -n "$PR" ]; then
+            gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --jq '.[] | select(.user.type == "Bot") | {body} | @json' >comments.jsonl
+          fi
+          node .github/fork/bin/release-notes.ts --version "$VERSION" --upstream-repository "$UP_REPO" \
+            --prev-upstream "$prev_up" --upstream-commit "$UP_COMMIT" \
+            --comments comments.jsonl --commits commits.txt >notes.md
+          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$tag" -m "upstream-commit: $UP_COMMIT"
+            git push origin "$tag"
+          fi
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes-file notes.md --verify-tag

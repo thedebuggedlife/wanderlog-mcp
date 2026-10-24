@@ -1,0 +1,88 @@
+name: sync
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      upstream_repo:
+        description: Override upstream repository (owner/name), for dry runs
+        required: false
+      upstream_ref:
+        description: Override upstream branch, for dry runs
+        required: false
+      dry_run:
+        description: Use sync/dry-run (never auto-merged)
+        type: boolean
+        default: false
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.SYNC_APP_ID }}
+          private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token }}
+
+      - id: vars
+        env:
+          INPUT_REPO: ${{ inputs.upstream_repo }}
+          INPUT_REF: ${{ inputs.upstream_ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          repo="${INPUT_REPO:-$(jq -r .repository .github/fork/upstream.json)}"
+          ref="${INPUT_REF:-$(jq -r .branch .github/fork/upstream.json)}"
+          branch=sync/upstream
+          if [ "$DRY_RUN" = "true" ]; then branch=sync/dry-run; fi
+          user_id=$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          {
+            echo "repo=$repo"
+            echo "ref=$ref"
+            echo "branch=$branch"
+          } >>"$GITHUB_OUTPUT"
+
+      - id: merge
+        env:
+          REPO: ${{ steps.vars.outputs.repo }}
+          REF: ${{ steps.vars.outputs.ref }}
+          BRANCH: ${{ steps.vars.outputs.branch }}
+        run: bash .github/fork/sync-merge.sh "https://github.com/$REPO.git" "$REF" "$BRANCH"
+
+      - if: steps.merge.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPO: ${{ steps.vars.outputs.repo }}
+          BRANCH: ${{ steps.vars.outputs.branch }}
+          UP_SHA: ${{ steps.merge.outputs.upstream_sha }}
+          MERGE_BASE: ${{ steps.merge.outputs.merge_base }}
+          CONFLICT: ${{ steps.merge.outputs.conflict }}
+        run: |
+          git push --force origin "HEAD:refs/heads/$BRANCH"
+          title="Sync upstream $REPO@${UP_SHA:0:12}"
+          body=$(printf "Merges upstream \`%s@%s\` into \`main\`.\n\nUpstream changes: https://github.com/%s/compare/%s...%s\n\nConflicts: %s\n" \
+            "$REPO" "$UP_SHA" "$REPO" "$MERGE_BASE" "$UP_SHA" "$CONFLICT")
+          number=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --title "$title" --body "$body"
+          else
+            gh pr create --base main --head "$BRANCH" --title "$title" --body "$body"
+          fi

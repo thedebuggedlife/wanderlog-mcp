@@ -1,5 +1,7 @@
 # wanderlog-mcp
 
+> **Reviewed fork.** This is [`thedebuggedlife/wanderlog-mcp`](https://github.com/thedebuggedlife/wanderlog-mcp), a fork of [`shaikhspeare/wanderlog-mcp`](https://github.com/shaikhspeare/wanderlog-mcp) published as [`@thedebuggedlife/wanderlog-mcp`](https://www.npmjs.com/package/@thedebuggedlife/wanderlog-mcp). Every upstream change is reviewed before it is released. Report issues that are not specific to this fork upstream.
+
 [![npm](https://img.shields.io/npm/v/wanderlog-mcp)](https://www.npmjs.com/package/wanderlog-mcp)
 [![npm downloads](https://img.shields.io/npm/dm/wanderlog-mcp)](https://www.npmjs.com/package/wanderlog-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
