@@ -212,7 +212,9 @@ export function buildSearchBody(
     sortBy: args.sort_by ?? "ratings",
     sources: args.sources,
     filters: {
-      priceRange: args.price_range ?? null,
+      priceRange: args.price_range
+        ? { minPrice: args.price_range[0], maxPrice: args.price_range[1] }
+        : null,
       hotelClasses: args.hotel_classes ?? null,
       minGuestRating: args.min_guest_rating ?? null,
       propertyTypes: {

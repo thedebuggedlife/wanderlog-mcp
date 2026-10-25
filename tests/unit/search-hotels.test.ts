@@ -61,6 +61,7 @@ describe("buildSearchBody", () => {
     // sources is optional; the default lives in RestClient.searchLodgings,
     // so buildSearchBody may emit it as undefined or omit the key.
     expect(body.filters?.hotelOrVacationRental ?? "both").toBe("both");
+    expect(body.filters?.priceRange).toBeNull();
   });
 
   it("passes through every filter when provided", () => {
@@ -91,7 +92,7 @@ describe("buildSearchBody", () => {
     expect(body.childrenAges).toEqual([4, 9]);
     expect(body.sortBy).toBe("price_low_to_high");
     expect(body.sources).toEqual(["expedia"]);
-    expect(body.filters?.priceRange).toEqual([50, 500]);
+    expect(body.filters?.priceRange).toEqual({ minPrice: 50, maxPrice: 500 });
     expect(body.filters?.hotelClasses).toEqual([4, 5]);
     expect(body.filters?.minGuestRating).toBe(8);
     expect(body.filters?.propertyTypes?.lodgingTypes).toEqual(["hotel"]);
