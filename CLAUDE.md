@@ -53,7 +53,7 @@ These are declared preferences; they override the superpowers skills' defaults.
   — the main checkout may be shared with other agents. Don't run `npm install`
   in a worktree; if dependencies are missing, run `npm ci`.
 - **Baseline / verification** is `npm run typecheck && npm test`; add `(cd .github/fork && npm test)` when touching `.github/fork/**` or `.github/workflows/**`. Run `npm run build && npm run test:integration` for changes to `src/transport/**` or `src/tools/**`.
-  It is a **machine-wide singleton** (it mutates the one live trip in `WANDERLOG_TRIP_KEY` on wanderlog.com) — never run two at once. It needs `.env`; if the worktree has none, say so instead of skipping silently.
+  It is a **machine-wide singleton** — never run two at once: it creates and deletes `WANDERDOG_TEST_*` trips in the one account, and its teardown deletes every such trip, so a second run would lose its trips mid-test. The trip in `WANDERLOG_TRIP_KEY` is only read (it must have dates). It needs `.env`; if the worktree has none, say so instead of skipping silently.
 - **Finishing a branch:** always push to `origin` and open a PR against the fork — `gh pr create --repo thedebuggedlife/wanderlog-mcp --base main`, never against `upstream`; never merge into `main` locally.
   The PR must carry exactly one `release:*` label — `release:none` for chore/docs/ci/test, `release:patch` for fixes, `release:minor` for features, `release:major` for breaking changes — since labels, not commit subjects, decide what the release workflow publishes when `main` moves. Ask if the bump is unclear.
   Before pushing, also run `npm run format:check && npm run lint && npm run build`: CI runs them for the required `fork/gates` status.
