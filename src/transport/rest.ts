@@ -283,7 +283,7 @@ export class RestClient {
     childrenAges: number[];
     sortBy: "ratings" | "price_low_to_high" | "price_high_to_low" | "deals";
     filters?: {
-      priceRange?: [number, number] | null;
+      priceRange?: { minPrice: number; maxPrice: number } | null;
       hotelClasses?: number[] | null;
       minGuestRating?: number | null;
       propertyTypes?: {

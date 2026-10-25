@@ -63,7 +63,8 @@ export const searchHotelsInputSchema = {
       "ISO 4217 currency code for prices (e.g. 'INR', 'USD', 'ARS'). Optional. When provided, the shared session's currency preference is updated before searching so all returned prices are in this currency. When omitted, prices are returned in the session's existing currency and no global preference is changed.",
     ),
   price_range: z
-    .tuple([z.number().min(0), z.number().min(0)])
+    .array(z.number().min(0))
+    .length(2)
     .optional()
     .describe("[min, max] nightly price band in the response currency."),
   hotel_classes: z
@@ -176,6 +177,11 @@ export function validateArgs(
       `check_out (${args.check_out}) must be after check_in (${args.check_in})`,
     );
   }
+  if (args.price_range && args.price_range[0] > args.price_range[1]) {
+    throw new WanderlogValidationError(
+      `price_range min (${args.price_range[0]}) must not exceed max (${args.price_range[1]})`,
+    );
+  }
   return {
     ...args,
     adult_count: args.adult_count ?? 2,
@@ -206,7 +212,9 @@ export function buildSearchBody(
     sortBy: args.sort_by ?? "ratings",
     sources: args.sources,
     filters: {
-      priceRange: args.price_range ?? null,
+      priceRange: args.price_range
+        ? { minPrice: args.price_range[0], maxPrice: args.price_range[1] }
+        : null,
       hotelClasses: args.hotel_classes ?? null,
       minGuestRating: args.min_guest_rating ?? null,
       propertyTypes: {

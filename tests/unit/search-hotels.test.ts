@@ -5,6 +5,7 @@ import {
   pollSearch,
   projectOffer,
   searchHotels,
+  validateArgs,
 } from "../../src/tools/search-hotels.ts";
 import type { LodgingOffer, LodgingSearchResponse } from "../../src/types.ts";
 import type { AppContext } from "../../src/context.ts";
@@ -15,6 +16,24 @@ const GEO = {
   country: "Thailand",
   bounds: [100.85, 12.77, 100.98, 13.0] as [number, number, number, number],
 };
+
+describe("validateArgs", () => {
+  const base = {
+    check_in: "2026-06-01",
+    check_out: "2026-06-03",
+    destination: "Pattaya",
+  };
+
+  it("rejects a price_range whose min exceeds its max", () => {
+    expect(() => validateArgs({ ...base, price_range: [500, 50] })).toThrow(
+      /price_range min \(500\) must not exceed max \(50\)/,
+    );
+  });
+
+  it("accepts a price_range with min equal to max", () => {
+    expect(validateArgs({ ...base, price_range: [100, 100] }).price_range).toEqual([100, 100]);
+  });
+});
 
 describe("buildSearchBody", () => {
   it("maps minimal args to the wire-format body", () => {
@@ -42,6 +61,7 @@ describe("buildSearchBody", () => {
     // sources is optional; the default lives in RestClient.searchLodgings,
     // so buildSearchBody may emit it as undefined or omit the key.
     expect(body.filters?.hotelOrVacationRental ?? "both").toBe("both");
+    expect(body.filters?.priceRange).toBeNull();
   });
 
   it("passes through every filter when provided", () => {
@@ -72,7 +92,7 @@ describe("buildSearchBody", () => {
     expect(body.childrenAges).toEqual([4, 9]);
     expect(body.sortBy).toBe("price_low_to_high");
     expect(body.sources).toEqual(["expedia"]);
-    expect(body.filters?.priceRange).toEqual([50, 500]);
+    expect(body.filters?.priceRange).toEqual({ minPrice: 50, maxPrice: 500 });
     expect(body.filters?.hotelClasses).toEqual([4, 5]);
     expect(body.filters?.minGuestRating).toBe(8);
     expect(body.filters?.propertyTypes?.lodgingTypes).toEqual(["hotel"]);
