@@ -5,6 +5,7 @@ import {
   pollSearch,
   projectOffer,
   searchHotels,
+  validateArgs,
 } from "../../src/tools/search-hotels.ts";
 import type { LodgingOffer, LodgingSearchResponse } from "../../src/types.ts";
 import type { AppContext } from "../../src/context.ts";
@@ -15,6 +16,24 @@ const GEO = {
   country: "Thailand",
   bounds: [100.85, 12.77, 100.98, 13.0] as [number, number, number, number],
 };
+
+describe("validateArgs", () => {
+  const base = {
+    check_in: "2026-06-01",
+    check_out: "2026-06-03",
+    destination: "Pattaya",
+  };
+
+  it("rejects a price_range whose min exceeds its max", () => {
+    expect(() => validateArgs({ ...base, price_range: [500, 50] })).toThrow(
+      /price_range min \(500\) must not exceed max \(50\)/,
+    );
+  });
+
+  it("accepts a price_range with min equal to max", () => {
+    expect(validateArgs({ ...base, price_range: [100, 100] }).price_range).toEqual([100, 100]);
+  });
+});
 
 describe("buildSearchBody", () => {
   it("maps minimal args to the wire-format body", () => {
