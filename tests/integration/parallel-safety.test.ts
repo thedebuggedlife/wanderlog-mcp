@@ -29,7 +29,7 @@ describe("Parallel write safety (live)", () => {
       destination: "Lisbon",
       start_date: "2099-06-01",
       end_date: "2099-06-05",
-      title: `WANDERDOG_PARALLEL_${timestamp}`,
+      title: `WANDERDOG_TEST_PARALLEL_${timestamp}`,
       privacy: "private",
     });
     if (create.isError) throw new Error(create.content[0]!.text);

@@ -19,6 +19,18 @@ import type {
 
 type Envelope<T> = { success?: boolean } & T;
 
+const RATE_LIMIT_RETRY_DELAYS_MS = [2_000, 4_000, 8_000];
+const MAX_RETRY_AFTER_MS = 8_000;
+
+// A 429 is rejected before the server acts on it, so retrying is safe for any method.
+function retryDelayMs(response: Response, attempt: number): number {
+  const retryAfter = Number(response.headers.get("Retry-After"));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) {
+    return Math.min(retryAfter * 1_000, MAX_RETRY_AFTER_MS);
+  }
+  return RATE_LIMIT_RETRY_DELAYS_MS[attempt]!;
+}
+
 export class RestClient {
   constructor(private readonly config: Config) {}
 
@@ -47,12 +59,24 @@ export class RestClient {
     if (opts.body !== undefined) init.body = JSON.stringify(opts.body);
 
     let response: Response;
-    try {
-      response = await fetch(url, init);
-    } catch (err) {
-      throw new WanderlogNetworkError(
-        `Request to ${method} ${path} failed: ${(err as Error).message}`,
-      );
+    for (let attempt = 0; ; attempt++) {
+      try {
+        response = await fetch(url, init);
+      } catch (err) {
+        throw new WanderlogNetworkError(
+          `Request to ${method} ${path} failed: ${(err as Error).message}`,
+        );
+      }
+      if (response.status !== 429) break;
+      if (attempt >= RATE_LIMIT_RETRY_DELAYS_MS.length) {
+        throw new WanderlogError(
+          `Wanderlog rate-limited ${method} ${path}`,
+          "rate_limited",
+          "Wanderlog is rate-limiting requests; wait a minute and retry.",
+        );
+      }
+      await response.body?.cancel();
+      await new Promise((r) => setTimeout(r, retryDelayMs(response, attempt)));
     }
 
     if (response.status === 401 || response.status === 403) {
